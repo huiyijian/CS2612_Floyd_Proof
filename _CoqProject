@@ -1,0 +1,8 @@
+-R GraphAlg/sets SetsClass
+-R GraphAlg/graph_lib GraphLib
+-R GraphAlg/monadlib MonadLib
+-R GraphAlg/fixedpoints FP
+-R GraphAlg/coq-record-update/src RecordUpdate
+-R GraphAlg/algorithms Algorithms
+-R GraphAlg/MaxMinLib MaxMinLib
+-R GraphAlg/ListLib ListLib

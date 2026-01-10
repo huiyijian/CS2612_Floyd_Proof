@@ -1,0 +1,30 @@
+# Coq build artifacts
+*.vo
+*.vok
+*.vos
+*.glob
+.*.aux
+.lia.cache
+.depend
+.depend.d
+
+# Generated Makefiles (if using coq_makefile)
+Makefile
+Makefile.conf
+
+# Editors
+.vscode/
+*.swp
+*~
+
+# OS specific
+.DS_Store
+Thumbs.db
+
+# Python scripts (if temporary)
+fix_floyd.py
+fix_floyd_2.py
+
+# Keep these!
+!_CoqProject
+!README.md
