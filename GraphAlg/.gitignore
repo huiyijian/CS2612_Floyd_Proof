@@ -9,7 +9,7 @@
 .depend.d
 
 # Generated Makefiles (if using coq_makefile)
-Makefile
+# Makefile
 Makefile.conf
 
 # Editors
