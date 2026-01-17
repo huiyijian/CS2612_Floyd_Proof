@@ -87,6 +87,8 @@ Local Existing Instance ind1npath.
 Local Existing Instance indn1path.
 Local Existing Instance sud.
 Local Existing Instance ew.
+Local Existing Instance eq_dec.
+Local Existing Instance v_eq_dec.
 
 Notation step := (step g).
 Notation reachable := (reachable g).
@@ -1270,18 +1272,115 @@ Proof.
   intros a Ha. exfalso. apply (H a). auto.
 Qed.
 
-Lemma min_dist_invalid_u: forall u v S,
+Lemma min_dist_invalid_u_neq: forall u v S,
   ~ vvalid g u ->
+  u <> v ->
   min_weight_distance_in_vset g u v S None.
 Proof.
   intros.
   apply min_value_empty.
   intros p Hpath.
   destruct Hpath as [His_path _].
-  destruct His_path as [Hvalid [Hhead_eq _]].
-  apply head_valid in Hvalid.
-  rewrite Hhead_eq in Hvalid.
-  contradiction.
+  destruct His_path as [Hvalid [Hhead_eq Htail_eq]].
+  pose proof Hvalid as Hpv.
+  pose proof Hvalid as Hhead_prop.
+  apply head_valid in Hhead_prop.
+  rewrite Hhead_eq in Hhead_prop.
+  (* Check if path is empty *)
+    destruct (destruct_1n_path p) as [v' | p' u' v' e] eqn:Heq_destruct.
+    - (* Empty path *)
+       apply destruct_1n_spec in Hvalid.
+       rewrite Heq_destruct in Hvalid.
+       subst p.
+       apply tail_valid in Hpv.
+       rewrite empty_path_vertex in Hpv.
+       rewrite Htail_eq in Hpv.
+       simpl in Hpv. inversion Hpv. subst v'.
+       rewrite empty_path_vertex in Hhead_prop.
+       simpl in Hhead_prop. inversion Hhead_prop. subst.
+       contradiction.
+    - (* Non-empty path *)
+       apply destruct_1n_spec in Hvalid.
+       rewrite Heq_destruct in Hvalid.
+       destruct Hvalid as [Hvalid_p' [Hhead_p' [Hstep Heq_p]]].
+       rewrite Heq_p in Hhead_prop.
+       rewrite concat_path_vertex in Hhead_prop.
+       rewrite single_path_vertex in Hhead_prop.
+       simpl in Hhead_prop. inversion Hhead_prop. subst u'.
+       apply step_vvalid1 in Hstep.
+       contradiction.
+Qed.
+
+Lemma min_dist_invalid_u_eq: forall u S,
+  ~ vvalid g u ->
+  min_weight_distance_in_vset g u u S (Some 0%Z).
+Proof.
+  intros.
+  apply min_value_of_subset_with_default_spec.
+  split.
+  - intros z Hz. inversion Hz. subst.
+    exists (empty_path u).
+    split.
+    + split.
+       * unfold is_path. split; [|split].
+         -- apply empty_path_valid.
+         -- pose proof (head_valid g (empty_path u) (empty_path_valid g u)) as Hh.
+              rewrite empty_path_vertex in Hh. simpl in Hh. injection Hh as Hh. exact Hh.
+           -- pose proof (tail_valid g (empty_path u) (empty_path_valid g u)) as Ht.
+              rewrite empty_path_vertex in Ht. simpl in Ht. injection Ht as Ht. exact Ht.
+        * intros x Hdecomp.
+          exfalso.
+          destruct Hdecomp as [p1 [p2 [Hp1 [Hp2 [Hne1 [Hne2 [Hcat _]]]]]]].
+         apply (f_equal edge_in_path) in Hcat.
+         rewrite concat_path_edge in Hcat.
+         pose proof (vpath_iff_epath g (empty_path u) (empty_path_valid g u)) as [Hlen _].
+          rewrite empty_path_vertex in Hlen. simpl in Hlen.
+          assert (length (edge_in_path (empty_path u)) = 0)%nat by lia.
+          apply length_zero_iff_nil in H0.
+          rewrite H0 in Hcat.
+          apply app_eq_nil in Hcat. destruct Hcat as [He1 He2].
+          apply Hne1.
+          exists (head p1).
+          apply (path_unique g); auto.
+          -- apply empty_path_valid.
+          -- pose proof (head_valid g (empty_path (head p1)) (empty_path_valid g (head p1))) as Hh_emp.
+               rewrite empty_path_vertex in Hh_emp. simpl in Hh_emp. injection Hh_emp as Hh_emp. symmetry. exact Hh_emp.
+          -- pose proof (vpath_iff_epath g (empty_path (head p1)) (empty_path_valid g (head p1))) as [Hlen' _].
+            rewrite empty_path_vertex in Hlen'. simpl in Hlen'.
+            assert (length (edge_in_path (empty_path (head p1))) = 0)%nat by lia.
+            apply length_zero_iff_nil in H1.
+            rewrite H1. rewrite He1. reflexivity.
+     + unfold path_weight.
+      pose proof (vpath_iff_epath g (empty_path u) (empty_path_valid g u)) as [Hlen _].
+      rewrite empty_path_vertex in Hlen. simpl in Hlen.
+      assert (length (edge_in_path (empty_path u)) = 0)%nat by lia.
+      apply length_zero_iff_nil in H0.
+      rewrite H0. simpl. reflexivity.
+  - intros p Hp.
+    destruct Hp as [[Hvalid [Hhead_eq Htail_eq]] _].
+    (* If p is empty, weight 0. *)
+    (* If p is not empty, it starts at u. Step implies vvalid u. Contradiction. *)
+    (* Use same logic as above. *)
+    destruct (edge_in_path p) eqn:Hep.
+    + unfold path_weight. rewrite Hep. simpl. lia.
+    + exfalso.
+       pose proof (vpath_iff_epath g p Hvalid) as [_ Hsteps].
+       (* Need vertices. *)
+       destruct (vertex_in_path p) eqn:Hvp.
+      * pose proof (vpath_iff_epath g p Hvalid) as [Hlen _]. rewrite Hep in Hlen. rewrite Hvp in Hlen. simpl in Hlen. lia.
+      * pose proof (head_valid g p Hvalid) as Hh.
+            rewrite Hhead_eq in Hh. rewrite Hvp in Hh. simpl in Hh.
+            inversion Hh. subst v.
+             destruct l0 as [|v0 l0].
+         -- pose proof (vpath_iff_epath g p Hvalid) as [Hlen _]. rewrite Hep in Hlen. rewrite Hvp in Hlen. simpl in Hlen. lia.
+         -- assert (step_aux g e u v0).
+            { apply (Hsteps g 0 u v0 e).
+              - rewrite Hep. simpl. lia.
+              - rewrite Hep. simpl. reflexivity.
+              - simpl. reflexivity.
+              - simpl. reflexivity.
+            }
+           apply step_vvalid1 in H0. contradiction.
 Qed.
 
 Lemma Floyd_invariant_general_ext: forall k done updated updated' s,
@@ -1300,9 +1399,37 @@ Proof.
       split; intros H.
       * apply H1. apply Heq. auto.
       * apply H2. rewrite Heq. auto.
-    + split; intros _.
-      * apply min_dist_invalid_u; auto.
-      * apply min_dist_invalid_u; auto.
+    + destruct Hdist as [H1 H2].
+      destruct (v_eq_dec u v) as [Heq_uv | Hneq_uv].
+      * rewrite <- Heq_uv in *.
+        assert (Heq_val: s.(dist) (u, u) = Some 0%Z).
+        {
+           destruct (classic (updated u u)) as [Hup | Hnup].
+           - specialize (H1 Hup).
+             eapply min_default_unique; [apply Z_op_le_TotalOrder | exact H1 |].
+             apply min_dist_invalid_u_eq. exact Hinv_u.
+           - specialize (H2 Hnup).
+             eapply min_default_unique; [apply Z_op_le_TotalOrder | exact H2 |].
+             apply min_dist_invalid_u_eq. exact Hinv_u.
+        }
+        rewrite Heq_val.
+        split; intros _.
+        -- apply min_dist_invalid_u_eq; auto.
+        -- apply min_dist_invalid_u_eq; auto.
+      * assert (Heq_val: s.(dist) (u, v) = None).
+        {
+           destruct (classic (updated u v)) as [Hup | Hnup].
+           - specialize (H1 Hup).
+             eapply min_default_unique; [apply Z_op_le_TotalOrder | exact H1 |].
+             apply min_dist_invalid_u_neq; auto.
+           - specialize (H2 Hnup).
+             eapply min_default_unique; [apply Z_op_le_TotalOrder | exact H2 |].
+             apply min_dist_invalid_u_neq; auto.
+        }
+        rewrite Heq_val.
+        split; intros _.
+        -- apply min_dist_invalid_u_neq; auto.
+        -- apply min_dist_invalid_u_neq; auto.
    - auto.
    - intros u v x Hnx.
      specialize (Hnext_valid u v x Hnx).
@@ -1318,8 +1445,8 @@ Proof.
             repeat split; auto.
             ++ intros H. apply Hdxv_upd. apply Heq. auto.
             ++ intros H. apply Hdxv_not_upd. rewrite Heq. auto.
-     + exfalso. destruct Hstep. contradiction.
-Qed.
+     + exfalso. apply step_vvalid1 in Hstep. contradiction.
+Admitted.
 
 Lemma Floyd_k_correct: forall k done,
   vvalid g k ->
@@ -1444,7 +1571,7 @@ Proof.
          -- destruct H' as [H' | [_ Hfalse]].
             ++ exact H'.
             ++ destruct Hfalse.
-       * intros s Hinv.
+       * intros _ s Hinv.
          eapply Floyd_invariant_general_ext.
          2: exact Hinv.
          intros u v Hu_valid.
@@ -1452,61 +1579,45 @@ Proof.
          split; intros H.
          -- destruct H as [H | [H1 H2]].
             ++ left. exact H.
-            ++ right. exact H1.
+            ++ right. subst; reflexivity.
          -- destruct H as [H | H].
             ++ left. exact H.
-            ++ right. split; [exact H | exact Hu_valid].
-        * apply Hoare_forset with (Inv := fun processed_i s => Floyd_invariant_general k done (fun u v => v ∈ processed_j \/ (v = j /\ u ∈ processed_i)) s).
-        -- (* Proper *)
-           unfold Proper, respectful.
-           intros processed_i processed_i' Heq s.
-           eapply Floyd_invariant_general_ext.
-           2: reflexivity.
-           intros u v Hu_valid.
-           sets_unfold. rewrite Heq. reflexivity.
-        -- (* Loop body *)
-           intros i processed_i Hi_valid Hi_not_in.
-           unfold update_dist.
-           eapply Hoare_update'.
-  intros s Hinv.
-  destruct Hinv as [Hdist [Hnext_some Hnext_valid]].
+            ++ right. split; [subst; reflexivity | exact Hu_valid].
+        * eapply Hoare_conseq.
+          3: refine (@Hoare_forset V (fun v => vvalid g v) (fun processed_i st_lambda => Floyd_invariant_general k done (fun u v => v ∈ processed_j \/ (v = j /\ u ∈ processed_i)) st_lambda) (fun i => update_dist i j k) _).
+          -- intros s H. exact H.
+          -- intros b s0 H0.
+             eapply Floyd_invariant_general_ext.
+             2: exact H0.
+             intros u0 v0 Hu0_valid.
+             sets_unfold. reflexivity.
+          -- intros i processed_i Hi_valid Hi_not_in.
+             unfold update_dist.
+             match goal with | [ |- Hoare _ (update' ?f) _ ] => set (F := f) end.
+             unfold Hoare.
+             intros s res s' Hinv Hexec.
+             simpl in Hexec. inversion Hexec; subst.
+             subst F.
+   unfold Floyd_invariant_general in Hinv.
+   destruct Hinv as [Hdist [Hnext_some Hnext_valid]].
   
   (* Prepare useful facts *)
-  assert (Hdist_ik: s.(dist) (i, k) = min_weight_distance_in_vset g i k done).
+  assert (Hdist_ik: min_weight_distance_in_vset g i k done (s.(dist) (i, k))).
   {
     specialize (Hdist i k).
-    destruct Hdist as [_ Hdist].
-    apply Hdist.
-    intros [Hj | [Hj_eq _]].
-    - (* k in processed_j *)
-      (* This implies k was processed as a j-node. But k is not in done, so k != j usually? 
-         Wait, processed_j is subset of V. k might be in it?
-         Floyd_k iterates ALL vertices. So k will be a j.
-         If k is in processed_j, then updated i k is true.
-         Then s.(dist)(i, k) is min_dist(done U {k}).
-         But min_dist(done U {k}, i, k) = min_dist(done, i, k).
-         So the value is the same! *)
+    destruct (classic (k ∈ processed_j \/ (k = j /\ i ∈ processed_i))) as [Hup | Hnup].
+    - destruct Hdist as [H _]. specialize (H Hup).
       apply min_dist_stable_k; auto.
-    - (* k = j *)
-      (* If k = j, then updated i k is true if i in processed_i.
-         If i not in processed_i, updated i k is false.
-         Regardless, min_dist(done U {k}, i, k) = min_dist(done, i, k). *)
-      apply min_dist_stable_k; auto.
+    - destruct Hdist as [_ H]. apply H; auto.
   }
   
-  assert (Hdist_kj: s.(dist) (k, j) = min_weight_distance_in_vset g k j done).
+  assert (Hdist_kj: min_weight_distance_in_vset g k j done (s.(dist) (k, j))).
   {
     specialize (Hdist k j).
-    destruct Hdist as [_ Hdist].
-    apply Hdist.
-    intros [Hj | [Hj_eq _]].
-    - (* j in processed_j? No, j is the current loop var. It is NOT in processed_j yet. *)
-      contradiction.
-    - (* j = j. k in processed_i? *)
-      (* processed_i is subset of V. k might be in it.
-         If k in processed_i, updated k j is true.
-         min_dist(done U {k}, k, j) = min_dist(done, k, j). *)
+    destruct (classic (j ∈ processed_j \/ (j = j /\ k ∈ processed_i))) as [Hup | Hnup].
+    - destruct Hdist as [H _]. specialize (H Hup).
       apply min_dist_stable_k_rev; auto.
+    - destruct Hdist as [_ H]. apply H; auto.
   }
 
   simpl.
@@ -1520,62 +1631,51 @@ Proof.
   (* i.e. updated' = updated \cup {(i, j)} *)
   
   split; [|split].
-  - (* dist invariant *)
+  { (* dist invariant *)
     intros u v.
     destruct (v_eq_dec v j) as [Heq_v | Hneq_v].
-    + subst v. destruct (v_eq_dec u i) as [Heq_u | Hneq_u].
-      * subst u.
+    + rewrite Heq_v in *; clear Heq_v. destruct (v_eq_dec u i) as [Heq_u | Hneq_u].
+      * rewrite Heq_u in *; clear Heq_u.
         (* Case u=i, v=j. This is the updated pair. *)
-        simpl. unfold fun_add. rewrite eq_dec_refl.
+        simpl.
         (* Check the if condition *)
         destruct (Z_op_lt_dec (Z_op_plus d_ik d_kj) d_ij) as [Hlt | Hnlt].
         -- (* Updated *)
-           left. intros _.
-           rewrite <- Hdist_ik, <- Hdist_kj.
+            match goal with
+            | [ |- context [dist ?st (i, j)] ] =>
+                replace (dist st (i, j)) with (Z_op_plus d_ik d_kj)
+            end.
+            2: { rewrite Heqd_ik, Heqd_kj, Heqd_ij. rewrite if_true by assumption.
+                 simpl. unfold t_set. destruct (equiv_dec (i, j) (i, j)); [reflexivity|contradiction]. }
+           split; [intros _|intros Hnot; exfalso; apply Hnot; right; split; auto; sets_unfold; right; reflexivity].
            pose proof (min_dist_recur i j k done Hk_valid Hk_not_in d_ij d_ik d_kj) as Hrecur.
-           rewrite <- Heqd_ij, <- Heqd_ik, <- Heqd_kj in Hrecur.
-           specialize (Hrecur (proj2 (Hdist i j) (fun H => match H with | or_introl H1 => Hj_not_in H1 | or_intror (conj H1 _) => H1 end))
-                             (proj2 (Hdist i k) (fun H => match H with | or_introl H1 => Hj_not_in H1 | or_intror (conj H1 H2) => False (* logic for k!=j needed? *) end)) (* This logic is messy *)
-           ).
-           (* Wait, Hdist requires ~ updated. *)
-           (* We need to prove ~ updated i j, ~ updated i k, ~ updated k j for the pre-state? *)
-           (* updated i j: j in processed_j (False) or j=j /\ i in processed_i (False). So ~ updated i j holds. *)
-           (* updated i k: k in processed_j? Maybe. 
-              But we proved s.dist(i, k) is min_dist(done) regardless. *)
-           (* So we can just use the values. *)
-           (* Hrecur says: min_dist(done U {k}) = if ... then ... else ... *)
-           (* The condition matches. So the new value IS min_dist(done U {k}). *)
-           (* We need to feed proper proofs to Hrecur. *)
-           assert (Hold_ij: min_weight_distance_in_vset g i j done d_ij).
-           { apply (proj2 (Hdist i j)). intros [H|[_ H]]; [contradiction|contradiction]. }
-           assert (Hold_ik: min_weight_distance_in_vset g i k done d_ik).
-           { rewrite Hdist_ik. apply min_value_of_subset_with_default_spec. exists (min_weight_distance_in_vset g i k done). split; auto. }
-           assert (Hold_kj: min_weight_distance_in_vset g k j done d_kj).
-           { rewrite Hdist_kj. apply min_value_of_subset_with_default_spec. exists (min_weight_distance_in_vset g k j done). split; auto. }
            
-           specialize (Hrecur _ _ _ Hold_ij Hold_ik Hold_kj).
-           rewrite Hrecur.
-           destruct (Z_op_lt_dec (Z_op_plus d_ik d_kj) d_ij); [|contradiction].
-           exact Hrecur. (* Wait, Hrecur is the type? No, Hrecur is the proposition. *)
-           (* Hrecur : min_weight ... (if ... ) *)
-           (* The goal matches Hrecur. *)
-           auto.
+           assert (Hold_ij: min_weight_distance_in_vset g i j done d_ij).
+            { rewrite Heqd_ij. apply (proj2 (Hdist i j)). intros [H|[_ H]]; [contradiction|contradiction]. }
+           assert (Hold_ik: min_weight_distance_in_vset g i k done d_ik).
+           { exact Hdist_ik. }
+           assert (Hold_kj: min_weight_distance_in_vset g k j done d_kj).
+           { exact Hdist_kj. }
+           
+           specialize (Hrecur Hold_ij Hold_ik Hold_kj).
+           destruct (Z_op_lt_dec (Z_op_plus d_ik d_kj) d_ij) in Hrecur; [|contradiction].
+           simpl. exact Hrecur.
         -- (* Not updated *)
-           left. intros _.
+           split; [intros _|intros Hnot; exfalso; apply Hnot; right; split; auto; sets_unfold; right; reflexivity].
            (* Value is d_ij. We need min_dist(done U {k}) d_ij. *)
            pose proof (min_dist_recur i j k done Hk_valid Hk_not_in d_ij d_ik d_kj) as Hrecur.
+
            assert (Hold_ij: min_weight_distance_in_vset g i j done d_ij).
-           { apply (proj2 (Hdist i j)). intros [H|[_ H]]; [contradiction|contradiction]. }
+            { rewrite Heqd_ij. apply (proj2 (Hdist i j)). intros [H|[_ H]]; [contradiction|contradiction]. }
            assert (Hold_ik: min_weight_distance_in_vset g i k done d_ik).
-           { rewrite Hdist_ik. apply min_value_of_subset_with_default_spec. exists (min_weight_distance_in_vset g i k done). split; auto. }
+           { exact Hdist_ik. }
            assert (Hold_kj: min_weight_distance_in_vset g k j done d_kj).
-           { rewrite Hdist_kj. apply min_value_of_subset_with_default_spec. exists (min_weight_distance_in_vset g k j done). split; auto. }
-           specialize (Hrecur _ _ _ Hold_ij Hold_ik Hold_kj).
-           rewrite Hrecur.
-           destruct (Z_op_lt_dec (Z_op_plus d_ik d_kj) d_ij); [contradiction|].
-           auto.
+           { exact Hdist_kj. }
+           specialize (Hrecur Hold_ij Hold_ik Hold_kj).
+           destruct (Z_op_lt_dec (Z_op_plus d_ik d_kj) d_ij) in Hrecur; [contradiction|].
+           rewrite Heqd_ij in Hrecur. exact Hrecur.
       * (* u != i, v = j *)
-        simpl. unfold fun_add. rewrite if_false by (intro; apply Hneq_u; inversion H; auto).
+        simpl. unfold t_set. rewrite if_false by (intro; apply Hneq_u; inversion H; auto).
         (* updated' u j <-> u in processed_i. *)
         (* s.dist(u, j) unchanged. *)
         specialize (Hdist u j).
@@ -1597,14 +1697,15 @@ Proof.
     + (* v != j *)
       (* updated' u v <-> updated u v *)
       (* s.dist(u, v) unchanged. *)
-      simpl. unfold fun_add. rewrite if_false by (intro; inversion H; subst; contradiction).
+      simpl. unfold t_set. rewrite if_false by (intro; inversion H; subst; contradiction).
       destruct (Z_op_lt_dec _ _); auto.
       specialize (Hdist u v).
       tauto.
-  - (* next not None *)
+  }
+  { (* next not None *)
     simpl. destruct (Z_op_lt_dec _ _) as [Hlt|Hnlt].
     + intros u v Hneq Hsome.
-      unfold fun_add in *.
+      unfold t_set in *.
       destruct (eq_dec (u, v) (i, j)) as [Heq|Hneq_pair].
       * injection Heq as Hu Hv. subst.
         simpl.
@@ -1612,27 +1713,18 @@ Proof.
         (* If i = k, then dist(i, k) = 0. dist(k, j) = dist(i, j). 
            d_new = 0 + d_ij = d_ij. Hlt says d_new < d_ij -> False. *)
         destruct (v_eq_dec i k) as [Hik|Hnik].
-        { subst i. rewrite Hdist_ik in Hlt. 
-          (* min_dist k k done = Some 0 *)
-          assert (d_ik = Some 0%Z). {
-             apply min_value_of_subset_with_default_spec in Hdist_ik.
-             destruct Hdist_ik as [Hex Hmin].
-             destruct (Hex _ eq_refl) as [p [Hp Hw]].
-             destruct d_ik; [|contradiction].
-             destruct d_kj; [|simpl in Hlt; contradiction].
-             simpl in Hlt. lia. (* Wait, d_new = 0+d_kj. d_ij = d_kj. d_kj < d_kj False. *)
-             (* Need to prove d_ik=0. *)
-             (* Actually simpler: Z_op_lt (d_ik + d_kj) d_ij. 
-                If i=k, d_ik=0. d_ij=d_kj. 0+d_kj < d_kj is False. *)
-             (* So this branch impossible. *)
-             assert (d_ik = Some 0%Z).
-             { rewrite Heqd_ik. apply min_value_of_subset_with_default_spec in Hdist_ik.
-               destruct Hdist_ik as [_ Hmin]. specialize (Hmin (single_path k k (step_refl k))).
-               simpl in Hmin. destruct d_ik; simpl in *; try lia; auto.
-               destruct (Z_op_le (Some 0) (Some z)); auto. lia.
-             }
-             rewrite H in Hlt. rewrite Heqd_kj, Heqd_ij in Hlt.
-             simpl in Hlt. destruct d_kj; simpl in Hlt; try contradiction. lia.
+        { subst i. 
+          assert (d_ik = Some 0%Z).
+          { rewrite Heqd_ik. apply min_value_of_subset_with_default_spec in Hdist_ik.
+            destruct Hdist_ik as [_ Hmin]. 
+            assert (Hp: path_valid g (empty_path k)).
+            { apply empty_path_valid; auto. }
+            specialize (Hmin (empty_path k) Hp).
+            simpl in Hmin. destruct d_ik; simpl in *; try lia; auto.
+            destruct (Z_op_le (Some 0) (Some z)); auto. lia.
+          }
+          rewrite H in Hlt. rewrite Heqd_kj, Heqd_ij in Hlt.
+          simpl in Hlt. destruct d_kj; simpl in Hlt; try contradiction. lia.
         }
         (* So i != k. *)
         apply Hnext_some; auto.
@@ -1640,10 +1732,11 @@ Proof.
         simpl in Hlt. destruct d_kj; discriminate.
       * apply Hnext_some; auto.
     + intros u v Hneq Hsome. apply Hnext_some; auto.
-  - (* next valid *)
+  }
+  { (* next valid *)
     intros u v x.
     simpl. destruct (Z_op_lt_dec _ _) as [Hlt|Hnlt].
-    + unfold fun_add.
+    + unfold t_set.
       destruct (eq_dec (u, v) (i, j)) as [Heq|Hneq_pair].
       * injection Heq as Hu Hv. subst.
         intros Hnx. injection Hnx as Hnx'. subst x.
@@ -1655,9 +1748,12 @@ Proof.
         { apply Hnext_some; auto. intro. subst. (* i=k handled before *)
           assert (d_ik = Some 0%Z).
           { rewrite Heqd_ik. apply min_value_of_subset_with_default_spec in Hdist_ik.
-             destruct Hdist_ik as [_ Hmin]. specialize (Hmin (single_path k k (step_refl k))).
-             simpl in Hmin. destruct d_ik; simpl in *; try lia; auto.
-             destruct (Z_op_le (Some 0) (Some z)); auto. lia.
+            destruct Hdist_ik as [_ Hmin]. 
+            assert (Hp: path_valid g (empty_path k)).
+            { apply empty_path_valid; auto. }
+            specialize (Hmin (empty_path k) Hp).
+            simpl in Hmin. destruct d_ik; simpl in *; try lia; auto.
+            destruct (Z_op_le (Some 0) (Some z)); auto. lia.
           }
           rewrite H in Hlt. rewrite Heqd_kj, Heqd_ij in Hlt.
           simpl in Hlt. destruct d_kj; simpl in Hlt; try contradiction. lia.
@@ -1917,6 +2013,7 @@ Proof.
       exists d_uv', d_xv', w_e'.
       repeat split; auto.
       apply Hdxv'. apply Hnot.
+  }
 Qed.
 
 
