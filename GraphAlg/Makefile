@@ -191,6 +191,7 @@ GRAPH_LIB_FILES=$(GRAPH_LIB_FILE_NAMES:%.v=$(GRAPH_LIB_DIR)/%.v)
 ALGORITHMS_FILE_NAMES = \
     MapLib.v \
     Floyd/Floyd.v \
+    Floyd/Floyd_lv4.v \
     Dijkstra/Dijkstra.v \
     Prim/Prim.v \
     Kruskal/Kruskal.v
