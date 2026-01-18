@@ -1,3 +1,2 @@
-COQBIN = /mnt/c/Coq-Platform~8.20~2025.01/bin/
-SUF = .exe
+COQBIN=
 SETS_DIR=sets
