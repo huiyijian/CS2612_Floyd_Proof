@@ -37,10 +37,10 @@ Section Floyd.
     核心思想是通过逐步允许使用更多的顶点作为中间点来优化路径。
 
     第四档难度要求：
-    1. 证明算法输出确实是最短路径长度
-    2. 证明如果 e 是 v 到 u 的边，且 d(s,u) = d(s,v) + length(e)，
-       则存在 s 到 u 的最短路径，最后一条边是 e
-    3. 额外记录信息使得最后可以构建最短路，并证明其正确性
+      额外记录信息使得最后可以构建最短路，并证明其正确性
+
+    为了达成这一目标，我们需要对之前进行的证明进行修改，为避免混淆，我们将第四档难度放在本文件中。
+    我们先对原先难度中的证明进行了修改，随后在修改的基础上进行第四档难度的证明。
 *)
 
 Context {G V E: Type}
@@ -166,11 +166,306 @@ Definition reconstruct_path (next: (V * V) -> option V) (u v: V) (limit: nat): l
   reconstruct_path_aux next u v limit.
 
 (** === 核心循环不变量 ===
-
     Floyd 算法的核心不变量：dist[u][v] 是通过 done 集合中顶点的最短距离
 *)
 Definition Floyd_dist_invariant (done: V -> Prop) (s: St): Prop :=
   forall u v, min_weight_distance_in_vset g u v done (s.(dist) (u, v)).
+
+(** 第四档：next 数组的正确性
+    
+    关键观察：next[u][v] = Some w 的含义取决于它如何被设置的：
+    1. 初始化时：对于直接边 u→v，next[u][v] = Some v
+    2. 更新时：如果通过 k 松弛，next[u][v] := next[u][k]
+    
+    因此，next[u][v] = Some w 意味着：
+    - w 是从 u 开始的最短路径上的第一个顶点
+    - 存在边 u → w
+    
+    重要：我们额外要求 next[u][u] = None（没有从顶点到自身的"下一跳"）
+    这简化了证明，因为它排除了 i=k 的退化情况。
+*)
+Definition next_valid_weak (s: St): Prop :=
+  (forall u v w,
+    s.(next) (u, v) = Some w ->
+    u <> v ->  (** 非平凡路径 *)
+    exists e, step_aux g e u w) /\
+  (forall u, s.(next) (u, u) = None).  (** 没有自环的next *)
+
+(** 第四档的关键引理：update_dist 保持 next_valid_weak 不变量
+    这个引理说明，当我们更新距离时，next 数组仍然满足有效性条件。
+
+    证明思路：
+    - 如果不更新：trivial，next 不变
+    - 如果更新：next[i][j] := next[i][k]
+      需要证明：存在边 i->w（其中 w = next[i][k]）
+      这直接来自 next_valid_weak 对 next[i][k] 的保证
+*)
+
+(** 辅助引理：在有距离不变量的前提下，i = j 时不会更新 *)
+Lemma self_loop_no_update: forall i k (done: V -> Prop) (s: St),
+  vvalid g i ->
+  vvalid g k ->
+  Floyd_dist_invariant done s ->
+  ~ Z_op_lt (Z_op_plus (s.(dist) (i, k)) (s.(dist) (k, i))) (s.(dist) (i, i)).
+Proof.
+  intros i k done s Hi Hk Hinv Hlt.
+  unfold Floyd_dist_invariant in Hinv.
+  specialize (Hinv i i) as Hii.
+  specialize (Hinv i k) as Hik.
+  specialize (Hinv k i) as Hki.
+  unfold min_weight_distance_in_vset in *.
+
+  (* 首先证明 dist[i][i] <= 0：空路径的权重是 0 *)
+  assert (Hdii_le_0: Z_op_le (s.(dist) (i, i)) (Some 0%Z)).
+  {
+    apply min_value_of_subset_with_default_spec in Hii.
+    destruct Hii as [_ Hmin].
+    (* 需要证明空路径满足 is_path_through_vset g (empty_path i) i i done *)
+    assert (Hempty_path: is_path_through_vset g (empty_path i) i i done).
+    {
+      split.
+      + split.
+        * apply empty_path_valid.
+        * split.
+          -- pose proof (head_valid g (empty_path i) (empty_path_valid g i)) as Hh.
+             rewrite empty_path_vertex in Hh. simpl in Hh.
+             injection Hh. auto.
+          -- pose proof (tail_valid g (empty_path i) (empty_path_valid g i)) as Ht.
+             rewrite empty_path_vertex in Ht. simpl in Ht.
+             injection Ht. auto.
+      + intros x [p1 [p2 [Hp1 [Hp2 [Hne1 [Hne2 [Hcat _]]]]]]].
+        (* 空路径没有中间顶点 *)
+        pose proof (empty_path_edge g i) as He.
+        rewrite <- Hcat in He.
+        rewrite concat_path_edge in He.
+        destruct (edge_in_path p1) eqn:Ep1; [|discriminate He].
+        destruct (edge_in_path p2) eqn:Ep2; [|discriminate He].
+        (* p1, p2 都没有边，所以都是空路径 *)
+        exfalso.
+        apply Hne1.
+        apply (proj2 (is_empty_path_iff_edges_nil g p1 Hp1)).
+        exact Ep1.
+    }
+    specialize (Hmin (empty_path i) Hempty_path).
+    unfold path_weight in Hmin.
+    rewrite (empty_path_edge g i) in Hmin.
+    simpl in Hmin.
+    exact Hmin.
+  }
+
+  (* 证明 Z_op_plus (dist[i][k]) (dist[k][i]) >= 0 *)
+  destruct (s.(dist) (i, k)) as [zik|] eqn:Hdik.
+  2: { (* dist[i][k] = None，则 Z_op_plus None _ = None，Z_op_lt None _ = False *)
+       simpl in Hlt. exact Hlt. }
+  destruct (s.(dist) (k, i)) as [zki|] eqn:Hdki.
+  2: { simpl in Hlt. exact Hlt. }
+  destruct (s.(dist) (i, i)) as [zii|] eqn:Hdii.
+  2: { (* dist[i][i] = None 与 Hdii_le_0 矛盾 *)
+       simpl in Hdii_le_0. exact Hdii_le_0. }
+
+  simpl in Hlt.
+  simpl in Hdii_le_0.
+
+  (* 从 Hik 得知存在从 i 到 k 权重为 zik 的路径 *)
+  apply min_value_of_subset_with_default_spec in Hik.
+  destruct Hik as [Hik_ex _].
+  specialize (Hik_ex zik eq_refl).
+  destruct Hik_ex as [pik [[Hpik_path _] Hpik_weight]].
+
+  (* 从 Hki 得知存在从 k 到 i 权重为 zki 的路径 *)
+  apply min_value_of_subset_with_default_spec in Hki.
+  destruct Hki as [Hki_ex _].
+  specialize (Hki_ex zki eq_refl).
+  destruct Hki_ex as [pki [[Hpki_path _] Hpki_weight]].
+
+  (* 连接这两条路径得到从 i 到 i 的环 *)
+  destruct Hpik_path as [Hpik_valid [Hpik_head Hpik_tail]].
+  destruct Hpki_path as [Hpki_valid [Hpki_head Hpki_tail]].
+
+  (* 构造连接路径 *)
+  assert (Hconnect: tail pik = head pki).
+  { rewrite Hpik_tail. rewrite Hpki_head. reflexivity. }
+  pose proof (concat_path_valid g pik pki Hpik_valid Hpki_valid Hconnect) as Hcycle_valid.
+
+  (* 证明这是一个从 i 到 i 的环 *)
+  assert (Hcycle_head: head (concat_path pik pki) = i).
+  { rewrite (head_concat_valid g pik pki Hpik_valid Hcycle_valid). exact Hpik_head. }
+  assert (Hcycle_tail: tail (concat_path pik pki) = i).
+  { rewrite (tail_concat g pik pki Hpik_valid Hpki_valid Hconnect).
+    exact Hpki_tail. }
+
+  (* 由无负环假设，这个环的权重 >= 0 *)
+  assert (Hcycle_weight: Z_op_le (Some 0%Z) (path_weight g (concat_path pik pki))).
+  { apply nnc.
+    - exact Hcycle_valid.
+    - rewrite Hcycle_head. rewrite Hcycle_tail. reflexivity. }
+
+  (* 计算环的权重 *)
+  rewrite concat_path_weight in Hcycle_weight.
+  rewrite Hpik_weight in Hcycle_weight.
+  rewrite Hpki_weight in Hcycle_weight.
+  simpl in Hcycle_weight.
+  lia.
+Qed.
+
+(** 更通用版本：只需要三个特定的距离条件 *)
+Lemma self_loop_no_update_gen: forall i k (done: V -> Prop) (s: St),
+  vvalid g i ->
+  vvalid g k ->
+  min_weight_distance_in_vset g i i done (s.(dist) (i, i)) ->
+  min_weight_distance_in_vset g i k done (s.(dist) (i, k)) ->
+  min_weight_distance_in_vset g k i done (s.(dist) (k, i)) ->
+  ~ Z_op_lt (Z_op_plus (s.(dist) (i, k)) (s.(dist) (k, i))) (s.(dist) (i, i)).
+Proof.
+  intros i k done s Hi Hk Hii Hik Hki Hlt.
+  unfold min_weight_distance_in_vset in *.
+
+  (* 首先证明 dist[i][i] <= 0：空路径的权重是 0 *)
+  assert (Hdii_le_0: Z_op_le (s.(dist) (i, i)) (Some 0%Z)).
+  {
+    apply min_value_of_subset_with_default_spec in Hii.
+    destruct Hii as [_ Hmin].
+    assert (Hempty_path: is_path_through_vset g (empty_path i) i i done).
+    {
+      split.
+      + split.
+        * apply empty_path_valid.
+        * split.
+          -- pose proof (head_valid g (empty_path i) (empty_path_valid g i)) as Hh.
+             rewrite empty_path_vertex in Hh. simpl in Hh.
+             injection Hh. auto.
+          -- pose proof (tail_valid g (empty_path i) (empty_path_valid g i)) as Ht.
+             rewrite empty_path_vertex in Ht. simpl in Ht.
+             injection Ht. auto.
+      + intros x [p1 [p2 [Hp1 [Hp2 [Hne1 [Hne2 [Hcat _]]]]]]].
+        pose proof (empty_path_edge g i) as He.
+        rewrite <- Hcat in He.
+        rewrite concat_path_edge in He.
+        destruct (edge_in_path p1) eqn:Ep1; [|discriminate He].
+        destruct (edge_in_path p2) eqn:Ep2; [|discriminate He].
+        exfalso.
+        apply Hne1.
+        apply (proj2 (is_empty_path_iff_edges_nil g p1 Hp1)).
+        exact Ep1.
+    }
+    specialize (Hmin (empty_path i) Hempty_path).
+    unfold path_weight in Hmin.
+    rewrite (empty_path_edge g i) in Hmin.
+    simpl in Hmin.
+    exact Hmin.
+  }
+
+  destruct (s.(dist) (i, k)) as [zik|] eqn:Hdik.
+  2: { simpl in Hlt. exact Hlt. }
+  destruct (s.(dist) (k, i)) as [zki|] eqn:Hdki.
+  2: { simpl in Hlt. exact Hlt. }
+  destruct (s.(dist) (i, i)) as [zii|] eqn:Hdii.
+  2: { simpl in Hdii_le_0. exact Hdii_le_0. }
+
+  simpl in Hlt.
+  simpl in Hdii_le_0.
+
+  apply min_value_of_subset_with_default_spec in Hik.
+  destruct Hik as [Hik_ex _].
+  specialize (Hik_ex zik eq_refl).
+  destruct Hik_ex as [pik [[Hpik_path _] Hpik_weight]].
+
+  apply min_value_of_subset_with_default_spec in Hki.
+  destruct Hki as [Hki_ex _].
+  specialize (Hki_ex zki eq_refl).
+  destruct Hki_ex as [pki [[Hpki_path _] Hpki_weight]].
+
+  destruct Hpik_path as [Hpik_valid [Hpik_head Hpik_tail]].
+  destruct Hpki_path as [Hpki_valid [Hpki_head Hpki_tail]].
+
+  assert (Hconnect: tail pik = head pki).
+  { rewrite Hpik_tail. rewrite Hpki_head. reflexivity. }
+  pose proof (concat_path_valid g pik pki Hpik_valid Hpki_valid Hconnect) as Hcycle_valid.
+
+  assert (Hcycle_head: head (concat_path pik pki) = i).
+  { rewrite (head_concat_valid g pik pki Hpik_valid Hcycle_valid). exact Hpik_head. }
+  assert (Hcycle_tail: tail (concat_path pik pki) = i).
+  { rewrite (tail_concat g pik pki Hpik_valid Hpki_valid Hconnect).
+    exact Hpki_tail. }
+
+  assert (Hcycle_weight: Z_op_le (Some 0%Z) (path_weight g (concat_path pik pki))).
+  { apply nnc.
+    - exact Hcycle_valid.
+    - rewrite Hcycle_head. rewrite Hcycle_tail. reflexivity. }
+
+  rewrite concat_path_weight in Hcycle_weight.
+  rewrite Hpik_weight in Hcycle_weight.
+  rewrite Hpki_weight in Hcycle_weight.
+  simpl in Hcycle_weight.
+
+  lia.
+Qed.
+
+Lemma update_dist_preserves_next_valid: forall i j k (done: V -> Prop),
+  vvalid g i ->
+  vvalid g j ->
+  vvalid g k ->
+  Hoare (fun s => next_valid_weak s /\ Floyd_dist_invariant done s)
+        (update_dist i j k)
+        (fun _ s => next_valid_weak s).
+Proof.
+  intros i j k done Hi Hj Hk.
+  unfold Hoare. intros s res s' [Hnext_valid Hdist_inv] Hexec.
+  unfold update_dist in Hexec.
+  simpl in Hexec. inversion Hexec; subst. clear Hexec.
+
+  destruct (Z_op_lt_dec (Z_op_plus (dist s (i, k)) (dist s (k, j))) (dist s (i, j))) as [Hlt|Hnlt].
+  - (* 更新发生 *)
+    simpl.
+    unfold next_valid_weak.
+    split.
+    + (* 第一部分：next[u][v] = Some w 且 u ≠ v 意味着存在边 u -> w *)
+      intros u v w Hnext_uv Huv_neq.
+      unfold t_set in Hnext_uv. simpl in Hnext_uv.
+      destruct (equiv_dec (i, j) (u, v)) as [Heq|Hneq].
+      * (* (i, j) = (u, v) *)
+        unfold equiv in Heq.
+        assert (u = i) by congruence.
+        assert (v = j) by congruence.
+        subst u v.
+
+        destruct Hnext_valid as [Hnext_edge Hnext_self].
+        destruct (v_eq_dec i k) as [Hik_eq|Hik_neq].
+        -- (* i = k *)
+           unfold equiv in Hik_eq. subst k.
+           rewrite Hnext_self in Hnext_uv.
+           discriminate Hnext_uv.
+        -- (* i ≠ k *)
+           apply Hnext_edge with (v := k).
+           ++ exact Hnext_uv.
+           ++ unfold complement, equiv in Hik_neq. exact Hik_neq.
+      * (* (i, j) ≠ (u, v) *)
+        destruct Hnext_valid as [Hnext_edge _].
+        apply Hnext_edge with (v := v); auto.
+    + (* 第二部分：next[u][u] = None *)
+      intros u.
+      unfold t_set. simpl.
+      destruct (equiv_dec (i, j) (u, u)) as [Heq|Hneq].
+      * (* (i, j) = (u, u)，即 i = j = u *)
+        unfold equiv in Heq.
+        assert (i = u) by congruence.
+        assert (j = u) by congruence.
+        subst u.
+        assert (i = j) by congruence.
+        subst j.
+        exfalso.
+        apply (self_loop_no_update i k done s Hi Hk Hdist_inv).
+        exact Hlt.
+      * (* (i, j) ≠ (u, u) *)
+        destruct Hnext_valid as [_ Hnext_self].
+        apply Hnext_self.
+  - simpl.
+    exact Hnext_valid.
+Qed.
+
+(** 完整的循环不变量：同时维护 dist 和 next 的正确性 *)
+Definition Floyd_invariant (done: V -> Prop) (s: St): Prop :=
+  Floyd_dist_invariant done s /\ next_valid_weak s.
 
 (** === 正确性规范 === *)
 
@@ -184,9 +479,7 @@ Definition distance_completeness (s: St): Prop :=
   forall u v d, min_weight_distance g u v (Some d) ->
     s.(dist) (u, v) = Some d.
 
-(** 第三档：边的最优性证明
-    如果 e 是 v 到 u 的边，且 d(s,u) = d(s,v) + length(e)，
-    则存在 s 到 u 的最短路径，最后一条边是 e *)
+(** 第三档：边的最优性证明*)
 Definition edge_optimality (s: St): Prop :=
   forall src u v e d_su d_sv w_e,
     s.(dist) (src, u) = Some d_su ->
@@ -298,11 +591,18 @@ Qed.
 
 (** === 初始状态定义 === *)
 Definition initialized_dist_state (s: St): Prop :=
-  Floyd_dist_invariant ∅ s.
+  Floyd_dist_invariant ∅ s /\
+  next_valid_weak s /\
+  (** 初始化时，对于有直接边的顶点对，next 指向目标顶点 *)
+  (forall u v d,
+    s.(dist) (u, v) = Some d ->
+    d <> 0%Z ->
+    u <> v ->
+    s.(next) (u, v) = Some v) /\
+  (** 且对于自环，next 应该是 None *)
+  (forall u, s.(next) (u, u) = None).
 
 (** === 松弛操作的核心引理 === *)
-
-(** 使用库中的 floyd_relaxation_correct *)
 Lemma min_dist_recur: forall u v k (done: V -> Prop),
   vvalid g k ->
   ~ k ∈ done ->
@@ -342,18 +642,11 @@ Proof.
 Qed.
 
 (** === Floyd_k 距离正确性证明 ===
-
-    仅证明距离部分的正确性
-*)
-
-(** 内层不变量 - 仅距离
+    内层不变量 - 仅距离
 
     关键点：对于已处理的 j（即 v ∈ updated_j），所有 (u, v) 对的距离满足 done ∪ [k] 的不变量；
     对于未处理的 j（即 v ∉ updated_j），所有 (u, v) 对的距离满足 done 的不变量。
 
-    注意：当 v ∈ updated_j 时，我们需要对所有 u 都满足新的不变量。
-    这是因为对于固定的 v = j，内层循环会遍历所有 i，因此在外层循环完成一个 j 后，
-    所有 (u, j) 都会被正确更新。
 *)
 Definition Floyd_dist_inner_inv (k: V) (done: V -> Prop) (updated_j: V -> Prop) (s: St): Prop :=
   forall u v,
@@ -441,12 +734,6 @@ Proof.
     + specialize (Hinv u v). destruct Hinv as [H _].
       apply H. exact Hv.
     + specialize (Hinv u v). destruct Hinv as [_ H].
-      (* v 不是有效顶点 *)
-      (* 当 v 无效时，is_path_through_vset 中的中间顶点约束不影响路径集合 *)
-      (* 因为对于 u -> v 的路径：*)
-      (* 1. 如果路径非空（有边），tail 必须有效 (step_vvalid2)，与 v 无效矛盾 *)
-      (* 2. 如果路径为空（u = v），没有中间顶点，所以约束相同 *)
-      (* 因此两个路径集合相等 *)
       unfold min_weight_distance_in_vset.
       assert (Hpath_equiv: forall p,
         is_path_through_vset g p u v (done ∪ [k]) <->
@@ -462,8 +749,6 @@ Proof.
           exfalso.
           (* 如果有中间顶点，路径必须非空 *)
           destruct Hx as [p1 [p2 [Hp1 [Hp2 [Hne1 [Hne2 [Hcat Htail_p1]]]]]]].
-          (* p2 非空，所以 tail p2 有效 *)
-          (* tail p = tail p2 = v，所以 v 有效，矛盾 *)
           destruct Hip as [Hpv [Hhead_p Htail_p]].
           destruct (destruct_n1_path p2) as [p_base v_base | p2' u2 v2 e2] eqn:Hd2.
           + (* p2 空，与 Hne2 矛盾 *)
@@ -474,17 +759,7 @@ Proof.
             pose proof (destruct_n1_spec _ _ Hp2) as Hs2.
             rewrite Hd2 in Hs2.
             destruct Hs2 as [Hp2' [Htail2' [Hstep2 Heq2]]].
-            (* tail p = tail p2 = v2 *)
-            (* 使用 path_concat_valid (从库中) 来证明 tail (concat p1 p2) = tail p2 *)
-            (* 首先证明 v = v2 *)
-            (* Hip : is_path g p u v，其中 p = concat_path p1 p2 *)
-            (* 由 is_path 定义，tail p = v *)
-            (* 我们需要 tail p2 = v2 *)
-            (* 由 Heq2: p2 = concat_path p2' (single_path u2 v2 e2) *)
-            (* tail (concat p2' (single ...)) = tail (single ...) = v2 *)
-            (* 使用 single_path_is_path 得到 is_path g (single u2 v2 e2) u2 v2 *)
             pose proof (single_path_is_path u2 v2 e2 Hstep2) as Hsp_path.
-            (* tail (single_path u2 v2 e2) = v2 *)
             unfold is_path in Hsp_path.
             destruct Hsp_path as [Hsp_valid [Hsp_head Hsp_tail]].
             (* 使用 path_concat_valid 证明 tail p2 = v2 *)
@@ -493,28 +768,15 @@ Proof.
             {
               split; auto.
             }
-            (* 由于 tail p2' = u2 且 head (single ...) = u2 *)
-            (* 可以用 path_concat_valid *)
             assert (Hconcat_path: is_path g (concat_path p2' (single_path u2 v2 e2)) (head p2') v2).
             {
               apply (concat_path_is_path (head p2') u2 v2).
               - exact Hp2'_path.
               - split; auto.
             }
-            (* 由 is_path 的定义，tail (concat_path p2' (single ...)) = v2 *)
             destruct Hconcat_path as [_ [_ Htail_concat]].
-            (* Heq2: p2 = concat_path p2' (single_path u2 v2 e2) *)
-            (* 所以 tail p2 = v2 *)
             assert (Htail_p2: tail p2 = v2).
             { rewrite Heq2. exact Htail_concat. }
-            (* 现在需要证明 tail (concat_path p1 p2) = tail p2 *)
-            (* 由 Hip: is_path g p u v 和 p = concat_path p1 p2 *)
-            (* Htail_p: tail p = v *)
-            (* 我们有 is_path g p1 u' (tail p1) 和 is_path g p2 (head p2) v *)
-            (* 其中 tail p1 = head p2 *)
-            (* 所以 is_path g (concat p1 p2) u' v，tail (concat p1 p2) = v *)
-            (* 但我们需要验证 v = tail p2 = v2 *)
-            (* Htail_p: tail (concat_path p1 p2) = v 直接给出 *)
             rewrite <- Hcat in Htail_p.
             (* 需要 tail (concat_path p1 p2) = tail p2 *)
             (* 使用 concat_path_is_path 的结论 *)
@@ -522,40 +784,7 @@ Proof.
             { split; auto. }
             assert (Hp2_path: is_path g p2 (head p2) (tail p2)).
             { split; auto. }
-            (* p 有效，所以 tail p1 = head p2 *)
-            (* 如何得到？由 path_valid g (concat_path p1 p2) 的定义... *)
-            (* 实际上从 Hpv 我们知道 path_valid g p *)
-            (* p = concat_path p1 p2 *)
-            (* 但 path_valid (concat ...) 不直接给出 tail p1 = head p2 *)
-            (* 它只是通过 concat_path_valid 构造的，前提包含这个等式 *)
-            (* 让我们直接计算 *)
-            (* tail (concat_path p1 p2) 由 tail_valid 给出 *)
-            (* = tl_error (vertex_in_path (concat_path p1 p2)) *)
-            (* = tl_error (vp1 ++ skipn 1 vp2) *)
-            (* 当 p2 非空时，= tl_error vp2 = tail p2 *)
-            (* 关键：p2 非空 (Hne2) *)
-            (* 最简单的方法：直接使用 Htail_p 和 Htail_p2 *)
-            (* 但我们还不知道 tail (concat p1 p2) = tail p2 *)
-            (* 让我用一个辅助引理 *)
-            (* 实际上，由于证明太复杂，让我换一个策略 *)
-            (* v = tail p = tail (concat_path p1 p2) *)
-            (* p2 非空，所以 destruct_n1 给出 p2 = concat p2' (single u2 v2 e2) *)
-            (* 由 destruct_n1_spec，tail p2 = v2 可以通过相同的计算得到 *)
-            (* 而 tail (concat p1 p2) 当 p2 非空时 = tail p2 *)
-            (* 这是因为 vertex_in_path (concat p1 p2) = vp1 ++ skipn 1 vp2 *)
-            (* tl_error 取最后一个元素，当 vp2 至少有 2 个元素时，结果是 vp2 的最后一个 = tail p2 *)
-            (* 但 p2 非空不意味着 vp2 有多个元素... *)
-            (* 让我直接证明 v = v2 *)
             apply Hnv.
-            (* 需要证明 vvalid g v *)
-            (* 由 step_vvalid2，v2 有效 *)
-            (* 如果 v = v2，则完成 *)
-            (* Htail_p: tail (concat_path p1 p2) = v *)
-            (* 我们已经知道 tail p2 = v2 *)
-            (* 关键：证明 v = v2 即 tail (concat_path p1 p2) = tail p2 *)
-            (* 由于 p2 非空，tail (concat_path p1 p2) = tail p2 *)
-            (* 这是 concat_path 的性质 *)
-            (* 使用 is_path 的 Hpv 和路径非空来证明 *)
             rewrite <- Hcat in Hpv.
             assert (Htail_eq: tail (concat_path p1 p2) = v2).
             {
@@ -578,36 +807,13 @@ Proof.
               - (* vertex_in_path p2 = [v0] *)
                 simpl in Htv_p2'. injection Htv_p2' as Hv2_eq.
                 rewrite app_nil_r in Htv_concat.
-                (* Htv_concat: Some (tail ...) = nth_error (v1 :: l0) (length l0) *)
-                (* 目标：tail (concat p1 p2) = v2 = v0 *)
-                (* 但 tail p1 = k，head p2 = v0 (当 vp2 = [v0]) *)
-                (* 由于 p = concat p1 p2 有效，tail p1 = head p2 *)
-                (* 但我们从 Htail_p1: tail p1 = k 得到 k = head p2 = v0 *)
-                (* 这种情况表示 k 是中间顶点且 p2 只有一个顶点 *)
-                (* 即 p2 = [k]，head p2 = tail p2 = k *)
-                (* 但 is_empty_path p2 应该为假（Hne2）*)
-                (* 当 p2 只有一个顶点时，is_empty_path p2 为真 *)
-                (* 与 Hne2 矛盾 *)
                 exfalso. apply Hne2.
-                (* 需要证明 is_empty_path p2 *)
-                (* vertex_in_path p2 = [v0] 意味着 p2 只有一个顶点 *)
-                (* 用 destruct_n1_path p2 应该给出 DestructBasen1 *)
-                (* 但 Hd2 说 destruct_n1_path p2 = DestructStepn1 ... *)
                 pose proof (destruct_n1_spec _ _ Hp2) as Hs2_again.
                 rewrite Hd2 in Hs2_again.
-                (* Hs2_again: path_valid g p2' /\ ... *)
                 destruct Hs2_again as [_ [_ [_ Heq2']]].
-                (* Heq2': p2 = concat_path p2' (single_path u2 v2 e2) *)
-                (* 由 Hvp2: vertex_in_path p2 = [v0] *)
-                (* 这意味着 p2 只有一个顶点，但 p2 = concat p2' (single ...) 意味着至少有边 *)
-                (* 矛盾 *)
-                (* single_path 有两个顶点 [u2, v2]，所以 concat 后至少两个顶点 *)
                 pose proof (single_path_valid g u2 v2 e2 Hstep2) as Hsp_valid'.
                 pose proof (vpath_iff_epath g (single_path u2 v2 e2) Hsp_valid') as [Hlen_sp _].
                 rewrite single_path_vertex in Hlen_sp. simpl in Hlen_sp.
-                (* Hlen_sp: 2 = S (length [e2]) = 2，所以 single_path 有 2 个顶点 *)
-                (* concat_path p2' (single_path ...) 的顶点 = vp2' ++ skipn 1 [u2; v2] = vp2' ++ [v2] *)
-                (* 所以至少有 1 + 1 = 2 个顶点，但 Hvp2 说只有 1 个 *)
                 rewrite Heq2' in Hvp2.
                 rewrite concat_path_vertex in Hvp2.
                 rewrite single_path_vertex in Hvp2. simpl in Hvp2.
@@ -617,52 +823,32 @@ Proof.
                   rewrite Hvp2' in Hlen'. simpl in Hlen'. lia.
                 + (* vertex_in_path p2' = v3 :: l3，则 concat 至少有 2 个顶点 *)
                   simpl in Hvp2.
-                  (* Hvp2: v3 :: l3 ++ v2 :: nil = v0 :: nil *)
-                  (* 长度矛盾：length (v3 :: l3 ++ [v2]) >= 2，但 length [v0] = 1 *)
                   assert (Hlen_contra: length ((v3 :: l3) ++ v2 :: nil) = length (v0 :: nil)).
                   { f_equal. exact Hvp2. }
                   rewrite app_length in Hlen_contra. simpl in Hlen_contra. lia.
               - (* vertex_in_path p2 = v0 :: v3 :: l, 有多个顶点 *)
-                (* 在 destruct l 后，l 被替换为 v3 :: l'，所以原来的形式变成 v0 :: v3 :: l' *)
-                (* Coq 把新的尾部仍然叫 l，所以现在 vertex_in_path p2 = v0 :: v3 :: l *)
-                (* 其中 v3 是原来 l 的头部 *)
                 simpl in Htv_p2'.
-                (* Htv_p2' 现在是: Some v2 = nth_error (v3 :: l) (length l) *)
-
-                (* 从 Htv_p2' 得到 v2 是 (v3 :: l) 的最后元素 *)
                 assert (Htv_p2'_eq: nth_error (v3 :: l) (length l) = Some v2).
                 { symmetry. exact Htv_p2'. }
 
-                (* Htv_concat 经过 simpl 后的形式 *)
                 pose proof (tail_valid g (concat_path p1 p2) Hpv) as Htv_fresh.
                 rewrite concat_path_vertex in Htv_fresh.
                 rewrite Hvp1 in Htv_fresh. rewrite Hvp2 in Htv_fresh.
                 simpl in Htv_fresh.
                 unfold tl_error in Htv_fresh.
 
-                (* 现在 Htv_fresh 应该有正确的形式 *)
                 destruct (l0 ++ v3 :: l) eqn:Hl0vl.
                 + (* l0 ++ v3 :: l = nil，矛盾 *)
                   destruct l0; simpl in Hl0vl; discriminate.
                 + (* l0 ++ v3 :: l = v4 :: l1 *)
                   simpl in Htv_fresh.
-                  (* Htv_fresh: Some (tail ...) = nth_error (v4 :: l1) (length l1) *)
-                  (* 即 tail (concat p1 p2) = last (v4 :: l1) v4 *)
-
-                  (* 由于 l0 ++ v3 :: l = v4 :: l1，最后元素是 (v3 :: l) 的最后元素 *)
                   assert (Hlast_same: nth_error (v4 :: l1) (length l1) = nth_error (v3 :: l) (length l)).
                   {
                     (* Hl0vl: l0 ++ v3 :: l = v4 :: l1 *)
-                    (* 所以 length (v4 :: l1) = length (l0 ++ v3 :: l) = length l0 + S (length l) *)
                     assert (Hlen_eq: length (v4 :: l1) = length (l0 ++ v3 :: l)).
                     { f_equal. symmetry. exact Hl0vl. }
                     rewrite app_length in Hlen_eq. simpl in Hlen_eq.
-                    (* Hlen_eq: S (length l1) = length l0 + S (length l) *)
-                    (* 所以 length l1 = length l0 + length l *)
                     assert (Hl1_len: length l1 = length l0 + length l) by lia.
-                    (* nth_error (v4 :: l1) (length l1) *)
-                    (* = nth_error (l0 ++ v3 :: l) (length l0 + length l) *)
-                    (* = nth_error (v3 :: l) (length l) *)
                     rewrite <- Hl0vl.
                     rewrite Hl1_len.
                     rewrite nth_error_app2 by lia.
@@ -725,9 +911,7 @@ Proof.
         unfold Sets.singleton, SetsEle.In in Hv_j. subst v.
         destruct (classic (vvalid g u)) as [Hu_valid|Hu_invalid].
         * apply Hpi_done. exact Hu_valid.
-        * (* u 无效的情况 - 使用 Hpi_old 并证明路径集合等价 *)
-          (* 由于 u 无效，不存在从 u 出发的路径，所以 done 和 done ∪ [k] 的路径集合相同 *)
-          assert (Hequiv': Sets.equiv
+        *  assert (Hequiv': Sets.equiv
             (fun p => is_path_through_vset g p u j (done ∪ [k]))
             (fun p => is_path_through_vset g p u j done)).
           {
@@ -736,9 +920,6 @@ Proof.
               intros x Hx. specialize (Hinter x Hx).
               destruct Hinter as [Hdone'|Hk_eq]; auto.
               unfold Sets.singleton, SetsEle.In in Hk_eq. subst x.
-              (* x = k 是中间顶点，但起点 u 无效 *)
-              (* 如果有中间顶点，路径必须非空，意味着 head p 有效 *)
-              (* 但 head p = u（由 Hip），而 u 无效，矛盾 *)
               exfalso.
               destruct Hip as [Hpv [Hhead _]].
               destruct Hx as [p1 [p2 [Hp1 [Hp2 [Hne1 [Hne2 [Hcat _]]]]]]].
@@ -748,9 +929,6 @@ Proof.
               + (* 空路径 - 与 p1 非空矛盾 *)
                 pose proof (destruct_1n_spec _ _ Hpv) as Hspec.
                 rewrite Hdp in Hspec.
-                (* p = empty_path v_base *)
-                (* 但 p = concat_path p1 p2 且 p1 非空 *)
-                (* empty_path 没有边，但非空路径 p1 有边 *)
                 destruct (destruct_1n_path p1) as [v1_base | p1' u1' v1' e1'] eqn:Hdp1.
                 * apply Hne1. exists v1_base.
                   pose proof (destruct_1n_spec _ _ Hp1) as Hspec1.
@@ -758,8 +936,6 @@ Proof.
                 * pose proof (destruct_1n_spec _ _ Hp1) as Hspec1.
                   rewrite Hdp1 in Hspec1.
                   destruct Hspec1 as [_ [_ [Hstep1 Heq1]]].
-                  (* p1 = concat_path (single_path u1' v1' e1') p1' *)
-                  (* edge_in_path p1 包含 e1' *)
                   pose proof (empty_path_edge g v_base) as Hemp_e.
                   rewrite <- Hspec in Hemp_e.
                   rewrite <- Hcat in Hemp_e.
@@ -773,9 +949,6 @@ Proof.
                 rewrite Hdp in Hspec.
                 destruct Hspec as [Hp' [Hhead' [Hstep' Heq']]].
                 apply Hu_invalid.
-                (* Heq' : concat_path p1 p2 = concat_path (single_path u' v' e') p' *)
-                (* Hhead : head (concat_path p1 p2) = u *)
-                (* 使用 head_valid 将 head 转换为 hd_error (vertex_in_path) *)
                 pose proof (single_path_valid g u' v' e' Hstep') as Hsp.
                 pose proof (tail_valid g (single_path u' v' e') Hsp) as Hsp_tail.
                 rewrite single_path_vertex in Hsp_tail. simpl in Hsp_tail.
@@ -787,8 +960,6 @@ Proof.
                 pose proof (head_valid g (concat_path (single_path u' v' e') p') Hcp_valid) as Hcp_head.
                 rewrite concat_path_vertex in Hcp_head.
                 rewrite single_path_vertex in Hcp_head. simpl in Hcp_head.
-                (* Hcp_head : Some (head (concat_path (single_path u' v' e') p')) = Some u' *)
-                (* 使用 Heq' 将 Hhead 中的 concat_path p1 p2 替换为 concat_path (single_path ...) p' *)
                 rewrite Heq' in Hhead.
                 assert (Hu_eq: u = u').
                 {
@@ -879,35 +1050,29 @@ Proof.
         unfold equiv in Heq.
         assert (u = i) by congruence. subst u.
         destruct d_ij as [zij|], d_ik as [zik|], d_kj as [zkj|]; simpl in *; try contradiction.
-        -- (* Some zij, Some zik, Some zkj *)
-           unfold Z_op_min in Hrecur. simpl in Hrecur.
+        -- unfold Z_op_min in Hrecur. simpl in Hrecur.
            replace (Z.min zij (zik + zkj)) with (zik + zkj)%Z in Hrecur.
            ++ exact Hrecur.
            ++ symmetry. apply Z.min_r. lia.
-        -- (* None, Some zik, Some zkj *)
-           unfold Z_op_min in Hrecur. simpl in Hrecur.
+        -- unfold Z_op_min in Hrecur. simpl in Hrecur.
            exact Hrecur.
       * (* u ≠ i，但 u ∈ processed_i ∪ [i] *)
         destruct Hu_in as [Hu_old|Hu_eq_i].
-        -- (* u ∈ processed_i *)
-           apply Hpi_done. exact Hu_old.
-        -- (* u = i，但我们已经排除了这种情况 *)
-           unfold Sets.singleton, SetsEle.In in Hu_eq_i.
+        -- apply Hpi_done. exact Hu_old.
+        -- unfold Sets.singleton, SetsEle.In in Hu_eq_i.
            exfalso. apply Hneq.
            unfold equiv. rewrite Hu_eq_i. reflexivity.
     + (* 对于当前的 j，未处理的 i 满足旧不变量 *)
       intros u Hu_not_in.
       unfold t_set. simpl.
       destruct (equiv_dec (i, j) (u, j)) as [Heq|Hneq].
-      * (* u = i，但 u ∉ processed_i ∪ [i]，矛盾 *)
-        exfalso.
+      * exfalso.
         unfold equiv in Heq.
         assert (u = i) by congruence. subst u.
         apply Hu_not_in.
         unfold Sets.union, Sets.singleton, SetsEle.In.
         right. reflexivity.
-      * (* u ≠ i *)
-        apply Hpi_old.
+      * apply Hpi_old.
         intros Hu_in. apply Hu_not_in. left. exact Hu_in.
     + (* 对于 v ∉ processed_j ∪ [j]，所有 u 满足旧不变量 *)
       intros u v Hv_not_in.
@@ -921,35 +1086,28 @@ Proof.
         unfold Sets.union, Sets.singleton, SetsEle.In.
         right. reflexivity.
       * apply Hother. exact Hv_not_in.
-  - (* 不更新 *)
-    simpl.
+  - simpl.
     unfold Floyd_dist_innermost_inv.
     repeat split.
-    + (* 对于 v ∈ processed_j，所有 u 满足新不变量 *)
-      intros u v Hv_in. apply Hpj. exact Hv_in.
+    + intros u v Hv_in. apply Hpj. exact Hv_in.
     + (* 对于当前的 j，已处理的 i（包括当前 i）满足新不变量 *)
       intros u Hu_in.
       destruct Hu_in as [Hu_old|Hu_eq_i].
-      * (* u ∈ processed_i *)
-        apply Hpi_done. exact Hu_old.
-      * (* u = i *)
-        unfold Sets.singleton, SetsEle.In in Hu_eq_i. subst u.
+      * apply Hpi_done. exact Hu_old.
+      * unfold Sets.singleton, SetsEle.In in Hu_eq_i. subst u.
         rewrite <- Heqd_ij.
         destruct d_ij as [zij|], d_ik as [zik|], d_kj as [zkj|]; simpl in *.
         all: try (unfold Z_op_min in Hrecur; simpl in Hrecur;
                   try replace (Z.min zij (zik + zkj)) with zij in Hrecur by (symmetry; apply Z.min_l; lia);
                   exact Hrecur).
         exfalso. apply Hnlt. exact I.
-    + (* 对于当前的 j，未处理的 i 满足旧不变量 *)
-      intros u Hu_not_in.
+    + intros u Hu_not_in.
       apply Hpi_old.
       intros Hu_in. apply Hu_not_in. left. exact Hu_in.
-    + (* 对于 v ∉ processed_j ∪ [j]，所有 u 满足旧不变量 *)
-      intros u v Hv_not_in. apply Hother. exact Hv_not_in.
+    + intros u v Hv_not_in. apply Hother. exact Hv_not_in.
 Qed.
 
-(** === 主定理：距离正确性 ===
-
+(** === 距离正确性 ===
     证明 Floyd 算法计算的距离是正确的
 *)
 
@@ -965,9 +1123,6 @@ Proof.
     intros x [p1 [p2 [Hp1 [Hp2 [Hne1 [Hne2 [Hcat Htail]]]]]]].
     destruct Hpath as [Hpv [Hhead Htail']].
     rewrite <- Hcat in Hpv.
-    (* 需要证明 tail p1 = x 是有效顶点 *)
-    (* 由于 p1 是非空路径（Hne1: ~ is_empty_path p1），使用 destruct_n1_spec *)
-    (* 从路径分解得到最后一条边，然后用 step_vvalid2 *)
     destruct (destruct_n1_path p1) as [p_base v_base | p1' u_step v_step e_step] eqn:Hdestruct.
     + (* p1 是空路径，与 Hne1 矛盾 *)
       exfalso. apply Hne1.
@@ -1011,17 +1166,10 @@ Proof.
         pose proof (vpath_iff_epath g p1' Hp1') as [Hlen _].
         destruct (vertex_in_path p1') as [|h t] eqn:Hvp1'.
         - simpl in Hlen. lia.
-        - (* 列表形式：h::t ++ skipn 1 [u_step; v_step] = h::t ++ [v_step] *)
-          simpl in Htv. unfold tl_error in Htv.
-          (* 需要计算 tl_error 的结果 *)
-          (* tl_error (h :: t ++ [v_step]) 应该返回 v_step *)
+        - simpl in Htv. unfold tl_error in Htv.
           destruct (t ++ v_step :: nil) eqn:Ht_concat.
           + destruct t; simpl in Ht_concat; discriminate.
           + simpl in Htv.
-            (* Htv : Some (tail (concat_path p1' (single_path u_step v_step e_step))) =
-                     match nth_error (v0 :: l) (length l) with ... *)
-            (* 需要证明 nth_error (v0 :: l) (length l) = Some v_step *)
-            (* 因为 v0 :: l = t ++ [v_step]，所以最后一个元素是 v_step *)
             assert (Hlast_elem: nth_error (v0 :: l) (length l) = Some v_step).
             {
               assert (Hlist_eq: v0 :: l = t ++ v_step :: nil).
@@ -1051,106 +1199,533 @@ Theorem Floyd_dist_correct:
         (fun _ s => distance_soundness s /\ distance_completeness s).
 Proof.
   unfold initialized_dist_state, Floyd.
-  eapply Hoare_conseq_post.
+  eapply Hoare_conseq_pre.
   2: {
-    apply Hoare_forset with (Inv := Floyd_dist_invariant).
-    intros k done Hk_valid Hk_not_in_done.
-    apply Floyd_k_dist_correct; auto.
-  }
-  intros r s Hinv.
-  unfold Floyd_dist_invariant in Hinv.
-
-  split.
-  (* 1. distance_soundness *)
-  {
-    intros u v d Hd.
-    unfold min_weight_distance.
-    specialize (Hinv u v).
-    unfold min_weight_distance_in_vset in Hinv.
-    (* 使用 min_default_eq_forward 转换路径集合 *)
-    eapply (min_default_eq_forward Z_op_le).
-    - rewrite Hd in Hinv. exact Hinv.
-    - intros p Hp. exists p. split.
-      + apply (proj1 (path_through_vvalid_equiv u v p)). exact Hp.
-      + apply Z_op_le_refl.
-    - intros p Hp. exists p. split.
-      + apply (proj2 (path_through_vvalid_equiv u v p)). exact Hp.
-      + apply Z_op_le_refl.
-  }
-
-  (* 2. distance_completeness *)
-  {
-    intros u v d Hd.
-    specialize (Hinv u v).
-    unfold min_weight_distance in Hd.
-    unfold min_weight_distance_in_vset in Hinv.
-    (* 使用 min_default_unique 和 min_default_eq_forward *)
-    assert (Hd': min_value_of_subset_with_default Z_op_le
-                   (fun p => is_path_through_vset g p u v (vvalid g))
-                   (path_weight g) None (Some d)).
-    {
-      eapply (min_default_eq_forward Z_op_le).
-      + exact Hd.
-      + intros p Hp. exists p. split.
-        * apply (proj2 (path_through_vvalid_equiv u v p)). exact Hp.
-        * apply Z_op_le_refl.
-      + intros p Hp. exists p. split.
-        * apply (proj1 (path_through_vvalid_equiv u v p)). exact Hp.
-        * apply Z_op_le_refl.
+    eapply Hoare_conseq_post.
+    2: {
+      apply Hoare_forset with (Inv := Floyd_dist_invariant).
+      intros k done Hk_valid Hk_not_in_done.
+      apply Floyd_k_dist_correct; auto.
     }
-    pose proof (min_default_unique Z_op_le (path_weight g)
-      (fun p => is_path_through_vset g p u v (vvalid g)) None _ _ Hd' Hinv) as Heq.
-    inversion Heq. reflexivity.
+    intros r s Hinv.
+    unfold Floyd_dist_invariant in Hinv.
+
+    split.
+    (* 1. distance_soundness *)
+    {
+      intros u v d Hd.
+      unfold min_weight_distance.
+      specialize (Hinv u v).
+      unfold min_weight_distance_in_vset in Hinv.
+      (* 使用 min_default_eq_forward 转换路径集合 *)
+      eapply (min_default_eq_forward Z_op_le).
+      - rewrite Hd in Hinv. exact Hinv.
+      - intros p Hp. exists p. split.
+        + apply (proj1 (path_through_vvalid_equiv u v p)). exact Hp.
+        + apply Z_op_le_refl.
+      - intros p Hp. exists p. split.
+        + apply (proj2 (path_through_vvalid_equiv u v p)). exact Hp.
+        + apply Z_op_le_refl.
+    }
+
+    (* 2. distance_completeness *)
+    {
+      intros u v d Hd.
+      specialize (Hinv u v).
+      unfold min_weight_distance in Hd.
+      unfold min_weight_distance_in_vset in Hinv.
+      assert (Hd': min_value_of_subset_with_default Z_op_le
+                     (fun p => is_path_through_vset g p u v (vvalid g))
+                     (path_weight g) None (Some d)).
+      {
+        eapply (min_default_eq_forward Z_op_le).
+        + exact Hd.
+        + intros p Hp. exists p. split.
+          * apply (proj2 (path_through_vvalid_equiv u v p)). exact Hp.
+          * apply Z_op_le_refl.
+        + intros p Hp. exists p. split.
+          * apply (proj1 (path_through_vvalid_equiv u v p)). exact Hp.
+          * apply Z_op_le_refl.
+      }
+      pose proof (min_default_unique Z_op_le (path_weight g)
+        (fun p => is_path_through_vset g p u v (vvalid g)) None _ _ Hd' Hinv) as Heq.
+      inversion Heq. reflexivity.
+    }
   }
+  intros s [Hdist [Hnext Hinit]]. exact Hdist.
 Qed.
 
-(** === 第三档难度：边的最优性 ===
 
-    如果 e 是 v 到 u 的边，且 d(src,u) = d(src,v) + weight(e)，
-    则存在 src 到 u 的最短路径，最后一条边是 e
+(** === 核心内容：完整正确性包括 next 数组 ===
+    这个定理证明 Floyd 算法不仅计算正确的距离，
+    而且维护了 next 数组的有效性，使得路径可以被重建.
 *)
 
-Theorem edge_optimality_theorem:
-  Hoare initialized_dist_state
-        Floyd
-        (fun _ s => edge_optimality s).
+(** 辅助引理：Floyd_k 同时维护距离和 next 不变量 *)
+Lemma Floyd_k_invariant_correct: forall k done,
+  vvalid g k ->
+  ~ k ∈ done ->
+  Hoare (Floyd_invariant done)
+        (Floyd_k k)
+        (fun _ => Floyd_invariant (done ∪ [k])).
 Proof.
-  eapply Hoare_conseq_post.
-  2: { apply Floyd_dist_correct. }
-  intros _ s [Hsound Hcomp].
-  unfold edge_optimality.
-  intros src u v e d_su d_sv w_e Hdsu Hdsv Hstep Hwe Heq.
+  intros k done Hk_valid Hk_not_in.
+  unfold Floyd_invariant.
+  unfold Floyd_k.
 
-  (* 由 d_sv 是最短距离，存在 src 到 v 的最短路径 p_sv *)
-  assert (Hmin_sv: min_weight_distance g src v (Some d_sv)).
-  { apply Hsound. exact Hdsv. }
+  (* 定义内层不变量，同时包含距离和 next *)
+  set (inner_inv := fun (processed_j: V -> Prop) (s: St) =>
+    Floyd_dist_inner_inv k done processed_j s /\ next_valid_weak s).
 
-  unfold min_weight_distance in Hmin_sv.
-  destruct Hmin_sv as [[Hmin_obj Hle]|[Hall Heq_def]].
-  + (* 存在最短路径 *)
-    destruct Hmin_obj as [p_sv [[Hp_sv Hp_sv_min] Hw_sv]].
-    exists (concat_path p_sv (single_path v u e)).
+  eapply Hoare_conseq with
+    (P2 := fun s => inner_inv ∅ s)
+    (Q2 := fun _ s => inner_inv (vvalid g) s).
+  {
+    (* 前置条件转换 *)
+    intros s [Hdist Hnext].
+    unfold inner_inv. split; auto.
+    unfold Floyd_dist_inner_inv.
+    intros u v. split.
+    - intros Hfalse. sets_unfold in Hfalse. contradiction.
+    - intros _. apply Hdist.
+  }
+  {
+    (* 后置条件转换 *)
+    intros _ s [Hinv Hnext].
+    unfold Floyd_dist_inner_inv in Hinv.
+    split; auto.
+    unfold Floyd_dist_invariant.
+    intros u v.
+    destruct (classic (vvalid g v)) as [Hv|Hnv].
+    + specialize (Hinv u v). destruct Hinv as [H _].
+      apply H. exact Hv.
+    + specialize (Hinv u v). destruct Hinv as [_ H].
+      unfold min_weight_distance_in_vset.
+      assert (Hequiv: Sets.equiv
+        (fun p => is_path_through_vset g p u v (done ∪ [k]))
+        (fun p => is_path_through_vset g p u v done)).
+      {
+        intros p. split; intros [Hip Hinter]; split; auto.
+        - intros x Hx.
+          specialize (Hinter x Hx).
+          destruct Hinter as [Hdone'|Hk_eq]; auto.
+          unfold Sets.singleton, SetsEle.In in Hk_eq. subst x.
+          exfalso.
+          destruct Hx as [p1 [p2 [Hp1 [Hp2 [Hne1 [Hne2 [Hcat Htail_p1]]]]]]].
+          destruct Hip as [Hpv [Hhead_p Htail_p]].
+          destruct (destruct_n1_path p2) as [p_base v_base | p2' u2 v2 e2] eqn:Hd2.
+          + apply Hne2. exists v_base.
+            pose proof (destruct_n1_spec _ _ Hp2) as Hs2.
+            rewrite Hd2 in Hs2. exact Hs2.
+          + pose proof (destruct_n1_spec _ _ Hp2) as Hs2.
+            rewrite Hd2 in Hs2.
+            destruct Hs2 as [Hp2' [Htail2' [Hstep2 Heq2]]].
+            pose proof (single_path_is_path u2 v2 e2 Hstep2) as Hsp_path.
+            unfold is_path in Hsp_path.
+            destruct Hsp_path as [Hsp_valid [Hsp_head Hsp_tail]].
+            assert (Hp2'_path: is_path g p2' (head p2') u2).
+            { split; auto. }
+            assert (Hconcat_path: is_path g (concat_path p2' (single_path u2 v2 e2)) (head p2') v2).
+            { apply (concat_path_is_path (head p2') u2 v2).
+              - exact Hp2'_path.
+              - split; auto.
+            }
+            destruct Hconcat_path as [_ [_ Htail_concat]].
+            assert (Htail_p2: tail p2 = v2).
+            { rewrite Heq2. exact Htail_concat. }
+            rewrite <- Hcat in Htail_p.
+            apply Hnv.
+            rewrite <- Htail_p.
+            rewrite <- Hcat in Hpv.
+            pose proof (tail_valid g (concat_path p1 p2) Hpv) as Htv_concat.
+            rewrite concat_path_vertex in Htv_concat.
+            destruct (vertex_in_path p2) eqn:Hvp2.
+            { pose proof (vpath_iff_epath g p2 Hp2) as [Hlen _].
+              rewrite Hvp2 in Hlen. simpl in Hlen. lia. }
+            destruct (vertex_in_path p1) eqn:Hvp1.
+            { pose proof (vpath_iff_epath g p1 Hp1) as [Hlen _].
+              rewrite Hvp1 in Hlen. simpl in Hlen. lia. }
+            simpl in Htv_concat.
+            unfold tl_error in Htv_concat.
+            destruct l.
+            * simpl in Htv_concat.
+              pose proof (tail_valid g p2 Hp2) as Htv_p2'.
+              rewrite Hvp2 in Htv_p2'. simpl in Htv_p2'.
+              unfold tl_error in Htv_p2'. simpl in Htv_p2'.
+              exfalso. apply Hne2.
+              pose proof (destruct_n1_spec _ _ Hp2) as Hs2_again.
+              rewrite Hd2 in Hs2_again.
+              destruct Hs2_again as [_ [_ [_ Heq2']]].
+              rewrite Heq2' in Hvp2.
+              rewrite concat_path_vertex in Hvp2.
+              rewrite single_path_vertex in Hvp2. simpl in Hvp2.
+              destruct (vertex_in_path p2') as [|v3 l3] eqn:Hvp2'.
+              -- pose proof (vpath_iff_epath g p2' Hp2') as [Hlen' _].
+                 rewrite Hvp2' in Hlen'. simpl in Hlen'. lia.
+              -- simpl in Hvp2.
+                 assert (Hlen_contra: length ((v3 :: l3) ++ v2 :: nil) = length (v0 :: nil)).
+                 { f_equal. exact Hvp2. }
+                 rewrite app_length in Hlen_contra. simpl in Hlen_contra. lia.
+            * simpl in Htv_concat.
+              destruct (l0 ++ v3 :: l) eqn:Hl0vl.
+              -- destruct l0; simpl in Hl0vl; discriminate.
+              -- simpl in Htv_concat.
+                 pose proof (tail_valid g p2 Hp2) as Htv_p2'_fresh.
+                 rewrite Hvp2 in Htv_p2'_fresh. simpl in Htv_p2'_fresh.
+                 unfold tl_error in Htv_p2'_fresh. simpl in Htv_p2'_fresh.
+                 assert (Htail_p2_eq: nth_error (v3 :: l) (length l) = Some v2).
+                 {
+                   rewrite Htail_p2 in Htv_p2'_fresh.
+                   symmetry. exact Htv_p2'_fresh.
+                 }
+                 assert (Hlast_same: nth_error (v4 :: l1) (length l1) = nth_error (v3 :: l) (length l)).
+                 {
+                   assert (Hlen_eq: length (v4 :: l1) = length (l0 ++ v3 :: l)).
+                   { f_equal. symmetry. exact Hl0vl. }
+                   rewrite app_length in Hlen_eq. simpl in Hlen_eq.
+                   assert (Hl1_len: length l1 = length l0 + length l) by lia.
+                   rewrite <- Hl0vl.
+                   rewrite Hl1_len.
+                   rewrite nth_error_app2 by lia.
+                   simpl. f_equal. lia.
+                 }
+                 rewrite Hlast_same in Htv_concat.
+                 rewrite Htail_p2_eq in Htv_concat.
+                 injection Htv_concat as Htl_eq.
+                 rewrite Htl_eq.
+                 apply (step_vvalid2 g e2 u2 v2 Hstep2).
+        - intros x Hx. left. apply Hinter. exact Hx.
+      }
+      rewrite Hequiv.
+      apply H. exact Hnv.
+  }
+
+  (* 主循环 *)
+  apply Hoare_forset with (Inv := inner_inv).
+  intros j processed_j Hj_valid Hj_not_in.
+  unfold Floyd_j.
+
+  (* 内层不变量 *)
+  set (innermost_inv := fun (processed_i: V -> Prop) (s: St) =>
+    Floyd_dist_innermost_inv k j done processed_j processed_i s /\ next_valid_weak s).
+
+  eapply Hoare_conseq with
+    (P2 := fun s => innermost_inv ∅ s)
+    (Q2 := fun _ s => innermost_inv (vvalid g) s).
+  {
+    (* 前置条件转换 *)
+    intros s [Hinv Hnext].
+    unfold innermost_inv. split; auto.
+    unfold Floyd_dist_innermost_inv.
+    repeat split.
+    - intros u v Hv_in. apply (proj1 (Hinv u v)). exact Hv_in.
+    - intros u Hu_in. sets_unfold in Hu_in. contradiction.
+    - intros u _. apply (proj2 (Hinv u j)). exact Hj_not_in.
+    - intros u v Hv_not_in. apply (proj2 (Hinv u v)).
+      intros Hv_in. apply Hv_not_in. left. exact Hv_in.
+  }
+  {
+    (* 后置条件转换 *)
+    intros _ s [[Hpj [Hpi_done [Hpi_old Hother]]] Hnext].
+    unfold inner_inv.
+    split; auto.
+    unfold Floyd_dist_inner_inv.
+    intros u v. split.
+    - intros Hv_in.
+      destruct Hv_in as [Hv_old|Hv_j].
+      + apply Hpj. exact Hv_old.
+      + unfold Sets.singleton, SetsEle.In in Hv_j. subst v.
+        destruct (classic (vvalid g u)) as [Hu_valid|Hu_invalid].
+        * apply Hpi_done. exact Hu_valid.
+        * (* u 无效的情况 *)
+          assert (Hequiv': Sets.equiv
+            (fun p => is_path_through_vset g p u j (done ∪ [k]))
+            (fun p => is_path_through_vset g p u j done)).
+          {
+            intros p. split; intros [Hip Hinter].
+            - split; auto.
+              intros x Hx. specialize (Hinter x Hx).
+              destruct Hinter as [Hdone'|Hk_eq]; auto.
+              unfold Sets.singleton, SetsEle.In in Hk_eq. subst x.
+              exfalso.
+              destruct Hip as [Hpv [Hhead _]].
+              destruct Hx as [p1 [p2 [Hp1 [Hp2 [Hne1 [Hne2 [Hcat _]]]]]]].
+              destruct (destruct_1n_path p) as [v_base | p' u' v' e'] eqn:Hdp.
+              + pose proof (destruct_1n_spec _ _ Hpv) as Hspec.
+                rewrite Hdp in Hspec.
+                destruct (destruct_1n_path p1) as [v1_base | p1' u1' v1' e1'] eqn:Hdp1.
+                * apply Hne1. exists v1_base.
+                  pose proof (destruct_1n_spec _ _ Hp1) as Hspec1.
+                  rewrite Hdp1 in Hspec1. exact Hspec1.
+                * pose proof (destruct_1n_spec _ _ Hp1) as Hspec1.
+                  rewrite Hdp1 in Hspec1.
+                  destruct Hspec1 as [_ [_ [Hstep1 Heq1]]].
+                  pose proof (empty_path_edge g v_base) as Hemp_e.
+                  rewrite <- Hspec in Hemp_e.
+                  rewrite <- Hcat in Hemp_e.
+                  rewrite concat_path_edge in Hemp_e.
+                  rewrite Heq1 in Hemp_e.
+                  rewrite concat_path_edge in Hemp_e.
+                  rewrite single_path_edge in Hemp_e.
+                  discriminate.
+              + pose proof (destruct_1n_spec _ _ Hpv) as Hspec.
+                rewrite Hdp in Hspec.
+                destruct Hspec as [Hp' [Hhead' [Hstep' Heq']]].
+                apply Hu_invalid.
+                pose proof (single_path_valid g u' v' e' Hstep') as Hsp.
+                pose proof (tail_valid g (single_path u' v' e') Hsp) as Hsp_tail.
+                rewrite single_path_vertex in Hsp_tail. simpl in Hsp_tail.
+                unfold tl_error in Hsp_tail. simpl in Hsp_tail.
+                injection Hsp_tail as Hsp_tail_eq.
+                assert (Hconnect: tail (single_path u' v' e') = head p').
+                { rewrite Hsp_tail_eq. symmetry. exact Hhead'. }
+                pose proof (concat_path_valid g _ _ Hsp Hp' Hconnect) as Hcp_valid.
+                pose proof (head_valid g (concat_path (single_path u' v' e') p') Hcp_valid) as Hcp_head.
+                rewrite concat_path_vertex in Hcp_head.
+                rewrite single_path_vertex in Hcp_head. simpl in Hcp_head.
+                rewrite Heq' in Hhead.
+                assert (Hu_eq: u = u').
+                {
+                  assert (Some u = Some u').
+                  { rewrite <- Hhead. rewrite <- Hcp_head. reflexivity. }
+                  injection H. auto.
+                }
+                rewrite Hu_eq.
+                apply (step_vvalid1 g e' u' v' Hstep').
+            - split; auto.
+              intros x Hx. left. apply Hinter. exact Hx.
+          }
+          unfold min_weight_distance_in_vset.
+          rewrite Hequiv'.
+          apply Hpi_old. exact Hu_invalid.
+    - intros Hv_not_in.
+      apply Hother. exact Hv_not_in.
+  }
+
+  (* 内层循环 *)
+  apply Hoare_forset with (Inv := innermost_inv).
+  intros i processed_i Hi_valid Hi_not_in.
+  unfold update_dist.
+
+  (* 单步更新 *)
+  unfold Hoare. intros s res s' [Hinv Hnext_valid] Hexec.
+  simpl in Hexec. inversion Hexec; subst. clear Hexec.
+
+  destruct Hinv as [Hpj [Hpi_done [Hpi_old Hother]]].
+
+  remember (s.(dist) (i, k)) as d_ik.
+  remember (s.(dist) (k, j)) as d_kj.
+  remember (s.(dist) (i, j)) as d_ij.
+
+  assert (Hdist_ij_old: min_weight_distance_in_vset g i j done d_ij).
+  { rewrite Heqd_ij. apply Hpi_old. exact Hi_not_in. }
+
+  assert (Hdist_ik: min_weight_distance_in_vset g i k done d_ik).
+  { rewrite Heqd_ik.
+    destruct (classic (k ∈ processed_j)) as [Hkj|Hnkj].
+    - apply (proj1 (min_dist_stable_k i k done (dist s (i, k)) Hk_valid Hk_not_in)).
+      apply Hpj. exact Hkj.
+    - destruct (v_eq_dec k j) as [Hk_eq_j|Hk_neq_j].
+      + unfold equiv in Hk_eq_j. rewrite Hk_eq_j. apply Hpi_old. exact Hi_not_in.
+      + apply Hother.
+        intros [Hk_in_pj|Hk_eq_j'].
+        * apply Hnkj. exact Hk_in_pj.
+        * unfold Sets.singleton, SetsEle.In in Hk_eq_j'.
+          exfalso. apply Hk_neq_j. unfold equiv. symmetry. exact Hk_eq_j'. }
+
+  assert (Hdist_kj: min_weight_distance_in_vset g k j done d_kj).
+  { rewrite Heqd_kj.
+    destruct (classic (k ∈ processed_i)) as [Hki|Hnki].
+    - apply (proj1 (min_dist_stable_k_rev k j done (dist s (k, j)) Hk_valid Hk_not_in)).
+      apply Hpi_done. exact Hki.
+    - apply Hpi_old. exact Hnki. }
+
+  pose proof (min_dist_recur i j k done Hk_valid Hk_not_in d_ij d_ik d_kj
+    Hdist_ij_old Hdist_ik Hdist_kj) as Hrecur.
+
+  destruct (Z_op_lt_dec (Z_op_plus d_ik d_kj) d_ij) as [Hlt|Hnlt].
+  - (* 更新发生 *)
+    simpl.
     split.
-    * (* 路径有效性 - 使用 concat_path_is_path *)
-      apply (concat_path_is_path src v u).
-      -- exact Hp_sv.
-      -- apply single_path_is_path. exact Hstep.
-    * split.
-      -- (* 权重正确 *)
-         rewrite concat_path_weight.
-         rewrite Hw_sv.
-         unfold path_weight. rewrite single_path_edge. simpl.
-         rewrite Hwe. simpl. f_equal. lia.
-      -- (* 路径以 e 结尾 *)
-         exists p_sv. reflexivity.
-  + (* 无路径情况 - 矛盾，因为 d_sv 有值 *)
-    exfalso.
-    discriminate Heq_def.
+    + (* 距离不变量 *)
+      unfold Floyd_dist_innermost_inv.
+      repeat split.
+      * intros u v Hv_in.
+        unfold t_set. simpl.
+        destruct (equiv_dec (i, j) (u, v)) as [Heq|Hneq].
+        -- exfalso.
+           unfold equiv in Heq.
+           assert (v = j) by congruence.
+           subst v. apply Hj_not_in. exact Hv_in.
+        -- apply Hpj. exact Hv_in.
+      * intros u Hu_in.
+        unfold t_set. simpl.
+        destruct (equiv_dec (i, j) (u, j)) as [Heq|Hneq].
+        -- unfold equiv in Heq.
+           assert (u = i) by congruence. subst u.
+           destruct d_ij as [zij|], d_ik as [zik|], d_kj as [zkj|]; simpl in *; try contradiction.
+           ++ unfold Z_op_min in Hrecur. simpl in Hrecur.
+              replace (Z.min zij (zik + zkj)) with (zik + zkj)%Z in Hrecur.
+              ** exact Hrecur.
+              ** symmetry. apply Z.min_r. lia.
+           ++ unfold Z_op_min in Hrecur. simpl in Hrecur.
+              exact Hrecur.
+        -- destruct Hu_in as [Hu_old|Hu_eq_i].
+           ++ apply Hpi_done. exact Hu_old.
+           ++ unfold Sets.singleton, SetsEle.In in Hu_eq_i.
+              exfalso. apply Hneq.
+              unfold equiv. rewrite Hu_eq_i. reflexivity.
+      * intros u Hu_not_in.
+        unfold t_set. simpl.
+        destruct (equiv_dec (i, j) (u, j)) as [Heq|Hneq].
+        -- exfalso.
+           unfold equiv in Heq.
+           assert (u = i) by congruence. subst u.
+           apply Hu_not_in.
+           unfold Sets.union, Sets.singleton, SetsEle.In.
+           right. reflexivity.
+        -- apply Hpi_old.
+           intros Hu_in. apply Hu_not_in. left. exact Hu_in.
+      * intros u v Hv_not_in.
+        unfold t_set. simpl.
+        destruct (equiv_dec (i, j) (u, v)) as [Heq|Hneq].
+        -- exfalso.
+           unfold equiv in Heq.
+           assert (v = j) by congruence. subst v.
+           apply Hv_not_in.
+           unfold Sets.union, Sets.singleton, SetsEle.In.
+           right. reflexivity.
+        -- apply Hother. exact Hv_not_in.
+    + (* next_valid_weak *)
+      unfold next_valid_weak.
+      split.
+      * intros u v w Hnext_uv Huv_neq.
+        unfold t_set in Hnext_uv. simpl in Hnext_uv.
+        destruct (equiv_dec (i, j) (u, v)) as [Heq|Hneq].
+        -- unfold equiv in Heq.
+           assert (u = i) by congruence.
+           assert (v = j) by congruence.
+           subst u v.
+           destruct Hnext_valid as [Hnext_edge Hnext_self].
+           destruct (v_eq_dec i k) as [Hik_eq|Hik_neq].
+           ++ unfold equiv in Hik_eq. subst k.
+              rewrite Hnext_self in Hnext_uv.
+              discriminate Hnext_uv.
+           ++ apply Hnext_edge with (v := k).
+              ** exact Hnext_uv.
+              ** unfold complement, equiv in Hik_neq. exact Hik_neq.
+        -- destruct Hnext_valid as [Hnext_edge _].
+           apply Hnext_edge with (v := v); auto.
+      * intros u.
+        unfold t_set. simpl.
+        destruct (equiv_dec (i, j) (u, u)) as [Heq|Hneq].
+        -- unfold equiv in Heq.
+           assert (Hi_eq_u: i = u) by congruence.
+           assert (Hj_eq_u: j = u) by congruence.
+           subst u.
+           assert (Hi_eq_j: i = j) by congruence. subst j.
+           exfalso.
+           rewrite Heqd_ij, Heqd_ik, Heqd_kj in Hlt.
+           apply (self_loop_no_update_gen i k done s Hi_valid Hk_valid).
+           ++ rewrite <- Heqd_ij. exact Hdist_ij_old.
+           ++ rewrite <- Heqd_ik. exact Hdist_ik.
+           ++ rewrite <- Heqd_kj. exact Hdist_kj.
+           ++ exact Hlt.
+        -- destruct Hnext_valid as [_ Hnext_self].
+           apply Hnext_self.
+  - (* 不更新 *)
+    simpl.
+    split.
+    + (* 距离不变量 *)
+      unfold Floyd_dist_innermost_inv.
+      repeat split.
+      * intros u v Hv_in. apply Hpj. exact Hv_in.
+      * intros u Hu_in.
+        destruct Hu_in as [Hu_old|Hu_eq_i].
+        -- apply Hpi_done. exact Hu_old.
+        -- unfold Sets.singleton, SetsEle.In in Hu_eq_i. subst u.
+           rewrite <- Heqd_ij.
+           destruct d_ij as [zij|], d_ik as [zik|], d_kj as [zkj|]; simpl in *.
+           all: try (unfold Z_op_min in Hrecur; simpl in Hrecur;
+                     try replace (Z.min zij (zik + zkj)) with zij in Hrecur by (symmetry; apply Z.min_l; lia);
+                     exact Hrecur).
+           exfalso. apply Hnlt. exact I.
+      * intros u Hu_not_in.
+        apply Hpi_old.
+        intros Hu_in. apply Hu_not_in. left. exact Hu_in.
+      * intros u v Hv_not_in. apply Hother. exact Hv_not_in.
+    + (* next_valid_weak *)
+      exact Hnext_valid.
 Qed.
 
-(** === 第四档难度：路径重建正确性 ===
+Theorem Floyd_with_next_correct:
+  Hoare initialized_dist_state
+        Floyd
+        (fun _ s => distance_soundness s /\ distance_completeness s /\ next_valid_weak s).
+Proof.
+  unfold initialized_dist_state, Floyd.
+  eapply Hoare_conseq_pre.
+  2: {
+    eapply Hoare_conseq_post.
+    2: {
+      apply Hoare_forset with (Inv := Floyd_invariant).
+      intros k done Hk_valid Hk_not_in_done.
+      apply Floyd_k_invariant_correct; auto.
+    }
+    intros r s [Hdist Hnext].
+    unfold Floyd_dist_invariant in Hdist.
 
-    如果 dist[u][v] = Some d，则存在权重为 d 的 u 到 v 路径
+    repeat split.
+    (* 1. distance_soundness *)
+    {
+      intros u v d Hd.
+      unfold min_weight_distance.
+      specialize (Hdist u v).
+      unfold min_weight_distance_in_vset in Hdist.
+      eapply (min_default_eq_forward Z_op_le).
+      - rewrite Hd in Hdist. exact Hdist.
+      - intros p Hp. exists p. split.
+        + apply (proj1 (path_through_vvalid_equiv u v p)). exact Hp.
+        + apply Z_op_le_refl.
+      - intros p Hp. exists p. split.
+        + apply (proj2 (path_through_vvalid_equiv u v p)). exact Hp.
+        + apply Z_op_le_refl.
+    }
+
+    (* 2. distance_completeness *)
+    {
+      intros u v d Hd.
+      specialize (Hdist u v).
+      unfold min_weight_distance in Hd.
+      unfold min_weight_distance_in_vset in Hdist.
+      assert (Hd': min_value_of_subset_with_default Z_op_le
+                     (fun p => is_path_through_vset g p u v (vvalid g))
+                     (path_weight g) None (Some d)).
+      {
+        eapply (min_default_eq_forward Z_op_le).
+        + exact Hd.
+        + intros p Hp. exists p. split.
+          * apply (proj2 (path_through_vvalid_equiv u v p)). exact Hp.
+          * apply Z_op_le_refl.
+        + intros p Hp. exists p. split.
+          * apply (proj1 (path_through_vvalid_equiv u v p)). exact Hp.
+          * apply Z_op_le_refl.
+      }
+      pose proof (min_default_unique Z_op_le (path_weight g)
+        (fun p => is_path_through_vset g p u v (vvalid g)) None _ _ Hd' Hdist) as Heq.
+      inversion Heq. reflexivity.
+    }
+
+    (* 3. next_valid_weak *)
+    { destruct Hnext as [Hnext_edge Hnext_self]. exact Hnext_edge. }
+    { destruct Hnext as [Hnext_edge Hnext_self]. exact Hnext_self. }
+  }
+  intros s [Hdist [Hnext Hinit]].
+  unfold Floyd_invariant. split; auto.
+Qed.
+
+(** === 路径重建正确性 ===
+    如果 dist[u][v] = Some d，则存在权重为 d 的 u 到 v 路径。
 *)
 Theorem path_reconstruction_theorem:
   Hoare initialized_dist_state
