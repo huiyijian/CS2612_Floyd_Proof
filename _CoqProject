@@ -6,3 +6,5 @@
 -R GraphAlg/algorithms Algorithms
 -R GraphAlg/MaxMinLib MaxMinLib
 -R GraphAlg/ListLib ListLib
+
+GraphAlg/algorithms/Floyd/Floyd.v

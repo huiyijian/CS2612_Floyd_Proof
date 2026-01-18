@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(coq_makefile:*)",
+      "Bash(make:*)",
+      "Bash(coqc:*)",
+      "Bash(grep:*)"
+    ]
+  }
+}
