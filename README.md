@@ -676,7 +676,7 @@ Lemma self_loop_no_update_gen: forall i k (done: V -> Prop) (s: St),
   ~ Z_op_lt (Z_op_plus (s.(dist) (i, k)) (s.(dist) (k, i))) (s.(dist) (i, i)).
 ```
 
-**证明思路：**
+证明思路：
 1. `dist[i][i]` 是从 i 到 i 的最短距离，空路径权重为 0，所以 `dist[i][i] ≤ 0`
 2. 如果存在从 i 到 k 再回到 i 的路径，其权重 ≥ 0（无负环假设）
 3. 因此 `dist[i][k] + dist[k][i] ≥ 0 ≥ dist[i][i]`
@@ -696,12 +696,7 @@ Lemma update_dist_preserves_next_valid: forall i j k (done: V -> Prop),
         (fun _ s => next_valid_weak s).
 ```
 
-**证明要点：**
-1. **不更新时：** trivial，next 不变
-2. **更新时：** `next[i][j] := next[i][k]`
-   - 需要证明存在边 i → w（其中 w = next[i][k]）
-   - 由 `next_valid_weak` 对 `next[i][k]` 的保证直接得到
-3. i = j 时不会更新
+证明要点：不更新时： trivial，next 不变；更新时： `next[i][j] := next[i][k]`，需要证明存在边 i → w（其中 w = next[i][k]），可由 `next_valid_weak` 对 `next[i][k]` 的保证直接得到
 
 ### 7.7 循环不变量的维护
 
@@ -724,7 +719,7 @@ Definition Floyd_dist_innermost_inv (k: V) (j: V) (done: V -> Prop)
      min_weight_distance_in_vset g u v done (s.(dist) (u, v))).
 ```
 
-**精细的追踪：** 区分已处理、正在处理和未处理的顶点对
+精细的追踪：*区分已处理、正在处理和未处理的顶点对
 
 #### 7.7.2 Floyd_k 同时维护两个不变量
 
@@ -739,7 +734,7 @@ Lemma Floyd_k_invariant_correct: forall k done,
         (Floyd_invariant (done ∪ [k])).
 ```
 
-**证明策略：**
+证明策略：
 1. 定义组合的内层不变量：`Floyd_dist_inner_inv /\ next_valid_weak`
 2. 在内层循环的每一步中，同时维护两个不变量
 3. 使用 `update_dist_preserves_next_valid` 保证 next 的有效性
@@ -787,10 +782,7 @@ Definition path_reconstruction_correct (s: St): Prop :=
     exists p, is_path g p u v /\ path_weight g p = Some d.
 ```
 
-**证明思路：**
-1. 由 `distance_soundness` 知，`dist[u][v] = d` 意味着 d 是最短距离
-2. 由最短距离的定义，必存在权重为 d 的路径 p
-3. 因此路径重建是可能的（虽然我们没有完全机械化 `reconstruct_path` 的正确性）
+证明思路： 由 `distance_soundness` 知，`dist[u][v] = d` 意味着 d 是最短距离。由最短距离的定义，必存在权重为 d 的路径 p。 因此路径重建是可能的（虽然我们没有完全机械化 `reconstruct_path` 的正确性）
 
 ---
 
