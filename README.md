@@ -274,24 +274,11 @@ Floyd (最外层) - 遍历所有中间节点 k
 
 **后置条件：** 将 `processed_i` 替换为 `processed_i ∪ [i]`
 
-**证明要点：**
-1. **使用 `floyd_relaxation_correct`**（来自库）证明松弛操作的正确性：
-   ```coq
-   min_weight_distance_in_vset g i j (done ∪ [k])
-     (Z_op_min (dist (i, j)) (Z_op_plus (dist (i, k)) (dist (k, j))))
-   ```
-
-2. **处理边界情况**：当 `i = k` 或 `j = k` 时，使用 `min_weight_distance_in_vset_stable` 证明：
-   ```coq
-   min_weight_distance_in_vset g u v (done ∪ [k]) w <->
-   min_weight_distance_in_vset g u v done w
-   ```
+证明使用 `floyd_relaxation_correct`证明松弛操作的正确性，使用`min_weight_distance_in_vset_stable` 证明边界条件。
 
 ### 5.4 中层循环：处理固定列 j
 
-**主引理：`Floyd_j_correct`** 
-
-**目标：** 固定 k 和 j，遍历所有起点 i，更新 dist[i][j]
+**主引理：`Floyd_j_correct`** ，**目标：** 固定 k 和 j，遍历所有起点 i，更新 dist[i][j]
 
 **前置条件：**
 ```coq
@@ -306,9 +293,6 @@ forall u v,
 
 #### 5.4.1 辅助引理1：`invalid_vertex_path_equiv` 
 
-**问题：** 无效顶点 u（`~ vvalid g u`）作为起点时，路径集合的等价性
-
-**引理：**
 ```coq
 Lemma invalid_vertex_path_equiv:
   forall (done: V -> Prop) (k u v: V) (w: option Z),
@@ -318,9 +302,7 @@ Lemma invalid_vertex_path_equiv:
 ```
 
 
-#### 5.4.2 辅助引理2：`Floyd_j_init` （第456-482行，约27行）
-
-**作用：** 证明内层循环开始时（`processed_i = ∅`）不变量成立
+#### 5.4.2 辅助引理2：`Floyd_j_init` 
 
 **关键：**
 ```coq
@@ -329,31 +311,22 @@ Lemma invalid_vertex_path_equiv:
    (~ ∅ u -> dist[u][j] 满足 done)    (* 所有 u 都满足旧不变量 *)
 ```
 
+**作用：** 证明内层循环开始时（`processed_i = ∅`）不变量成立
 
-#### 5.4.3 辅助引理3：`Floyd_j_final` （第488-538行，约51行）
+
+#### 5.4.3 辅助引理3：`Floyd_j_final` 
 
 **作用：** 从内层循环结束状态推导出后置条件
 
-**关键：** 分 `v = j` 和 `v ≠ j` 两种情况
-
-**情况1：v = j**
-- 如果 u 有效：直接使用内层不变量
-- 如果 u 无效：使用 `invalid_vertex_path_equiv` 证明等价性
-
-**情况2：v ≠ j**
-- v 在 processed_j 中或不在，直接使用前置条件
+分 `v = j` 和 `v ≠ j` 两种情况。情况1：v = j， 如果 u 有效：直接使用内层不变量；如果 u 无效：使用 `invalid_vertex_path_equiv` 证明等价性。情况2：v ≠ j，v 在 processed_j 中或不在，直接使用前置条件
 
 
-#### 5.4.4 辅助引理4：`Floyd_j_invariant_Proper` （第544-577行，约34行）
+#### 5.4.4 辅助引理4：`Floyd_j_invariant_Proper` 
 
-**作用：** 证明内层循环不变量关于集合等价关系是良定义的
-
-**必要性：** `Hoare_forset` 要求不变量满足 Proper 性质
-
+证明内层循环不变量关于集合等价关系是良定义的
 
 #### 5.4.5 主证明：`Floyd_j_correct`
 
-**结构：**
 ```coq
 eapply Hoare_conseq.
 3: apply (Hoare_forset (内层不变量)).
@@ -366,7 +339,7 @@ eapply Hoare_conseq.
 
 ### 5.5 外层循环：处理中间节点 k
 
-**引理：`Floyd_k_correct`** （第636-716行，约81行）
+**引理：`Floyd_k_correct`**
 
 **目标：** 固定 k，遍历所有目标顶点 j
 
@@ -387,10 +360,6 @@ fun processed_j s =>
     (~ processed_j v -> min_weight_distance_in_vset g u v done (dist (u, v)))
 ```
 
-**含义：**
-- 已处理的列 j（`processed_j v`）：dist[u][v] 满足 done ∪ [k] 的不变量
-- 未处理的列：dist[u][v] 满足 done 的不变量
-
 #### 5.5.2 初始化
 
 ```coq
@@ -404,15 +373,9 @@ split.
 
 当所有列 j 处理完毕后，证明 `Floyd_loop_invariant (done ∪ [k])`
 
-**分两种情况：**
-
-**情况1：v 有效**（`vvalid g v`）
-- 直接使用外层不变量中 `processed_j v` 的结论
-
-**情况2：v 无效**（`~ vvalid g v`）
-- 使用类似 `invalid_vertex_path_equiv` 的技术
-- 证明：无效的终点意味着路径必为空（使用 `valid_path_tail_valid`）
-- 因此中间节点集的变化不影响路径集合
+分两种情况：
+-情况1：v 有效（`vvalid g v`），则直接使用外层不变量中 `processed_j v` 的结论
+-情况2：v 无效**（`~ vvalid g v`），则使用类似 `invalid_vertex_path_equiv` 的技术
 
 
 #### 5.5.4 Proper 性质
@@ -441,19 +404,19 @@ Theorem Floyd_correct:
         (fun _ s => distance_correct s).
 ```
 
-**含义：** 如果初始状态满足空集上的循环不变量（`initialized_state`），则Floyd算法执行后，`dist`数组满足完全正确性（`distance_correct`），即同时满足健全性和完备性：
-- **健全性**：`dist[u][v] = w` ⟹ w 是真正的最短距离
-- **完备性**：w 是最短距离 ⟹ `dist[u][v] = w`
+如果初始状态满足空集上的循环不变量（`initialized_state`），则Floyd算法执行后，`dist`数组满足完全正确性（`distance_correct`），即同时满足健全性和完备性：
+- 健全性：`dist[u][v] = w` ⟹ w 是真正的最短距离
+- 完备性：w 是最短距离 ⟹ `dist[u][v] = w`
 
 #### 5.6.2 证明框架：三层嵌套循环的统一
 
-**核心思想：** 使用 `Hoare_forset` 框架处理最外层循环（遍历所有中间节点k）
+核心思想： 使用 `Hoare_forset` 框架处理最外层循环（遍历所有中间节点k）
 
 ```coq
 3: apply (Hoare_forset Floyd_loop_invariant).
 ```
 
-**循环不变量：** `Floyd_loop_invariant done` 表示当 `done` 中的所有顶点都作为中间节点处理完毕后，`dist[u][v]` 存储的是只允许经过 `done` 中顶点作为中间节点的最短路径。
+循环不变量： `Floyd_loop_invariant done` 表示当 `done` 中的所有顶点都作为中间节点处理完毕后，`dist[u][v]` 存储的是只允许经过 `done` 中顶点作为中间节点的最短路径。
 
 #### 5.6.3 证明的四个组成部分
 
@@ -936,17 +899,6 @@ min_weight_distance定义 (最短距离必存在路径)
 | `Floyd_k k` | 固定k，遍历所有j |
 | `Floyd` | 遍历所有k |
 | `reconstruct_path u v` | 从next数组重建u到v的路径 |
-
-### A.4 第四档难度的关键创新
-
-| 创新点 | 描述 |
-|--------|------|
-| **状态扩展** | 在St中添加next字段存储路径信息 |
-| **同步更新** | update_dist同时更新dist和next |
-| **弱有效性不变量** | next_valid_weak：仅要求next指向的是有效的下一跳 |
-| **自环引理** | 证明i=j时不会触发更新，保证next[u][u]永远为None |
-| **组合不变量** | Floyd_invariant同时维护dist和next的正确性 |
-| **路径存在性** | 通过distance_soundness证明路径可重建 |
 
 
 
