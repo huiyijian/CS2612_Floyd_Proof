@@ -232,11 +232,6 @@ Definition update_dist (i j k: V): program St unit :=
     dist0 |>).
 ```
 
-**关键点：**
-- 使用 `Z_op_min` 取最小值
-- 使用 `Z_op_plus` 处理 option Z 的加法（None 表示无穷大）
-- 通过 record update 语法 `<| dist ::= ... |>` 更新状态
-
 #### 5.1.3 循环不变量定义
 
 ```coq
@@ -265,7 +260,7 @@ Floyd (最外层) - 遍历所有中间节点 k
 
 ### 5.3 最内层：距离更新操作
 
-**引理：`update_dist_correct`** （第295-407行，约113行）
+**引理：`update_dist_correct`** 
 
 **前置条件：**
 ```coq
@@ -291,17 +286,10 @@ Floyd (最外层) - 遍历所有中间节点 k
    min_weight_distance_in_vset g u v (done ∪ [k]) w <->
    min_weight_distance_in_vset g u v done w
    ```
-   
-3. **保持其他位置不变**：使用 `t_update_neq` 证明更新 `(i, j)` 不影响其他位置
-
-**关键技巧：** 分情况讨论
-- 如果 `u = i`：应用松弛操作的正确性
-- 如果 `u ≠ i` 且 `u ∈ processed_i`：使用前置条件中已有的结论
-- 如果 `u ∉ processed_i ∪ [i]`：保持旧的距离不变量
 
 ### 5.4 中层循环：处理固定列 j
 
-**主引理：`Floyd_j_correct`** （第590-630行，约40行）
+**主引理：`Floyd_j_correct`** 
 
 **目标：** 固定 k 和 j，遍历所有起点 i，更新 dist[i][j]
 
@@ -316,7 +304,7 @@ forall u v,
 
 **证明使用 `Hoare_forset` 框架**，需要提供4个组件：
 
-#### 5.4.1 辅助引理1：`invalid_vertex_path_equiv` （第414-450行，约37行）
+#### 5.4.1 辅助引理1：`invalid_vertex_path_equiv` 
 
 **问题：** 无效顶点 u（`~ vvalid g u`）作为起点时，路径集合的等价性
 
@@ -329,15 +317,6 @@ Lemma invalid_vertex_path_equiv:
     min_weight_distance_in_vset g u v done w.
 ```
 
-**证明思路：**
-1. 无效顶点不能是任何非空路径的起点（使用 `valid_path_head_valid`）
-2. 因此从 u 出发的路径只能是空路径（u = v 的情况）
-3. 空路径没有中间节点，所以 done 和 done ∪ [k] 的约束相同
-4. 使用 `is_empty_path_dec` 判定路径是否为空
-
-**关键技术：**
-- 使用 `is_empty_path_iff_edges_nil` 证明空路径等价于边集为空
-- 通过 `concat_path_edge` 分解拼接路径的边集
 
 #### 5.4.2 辅助引理2：`Floyd_j_init` （第456-482行，约27行）
 
@@ -350,7 +329,6 @@ Lemma invalid_vertex_path_equiv:
    (~ ∅ u -> dist[u][j] 满足 done)    (* 所有 u 都满足旧不变量 *)
 ```
 
-**证明：** 直接使用前置条件
 
 #### 5.4.3 辅助引理3：`Floyd_j_final` （第488-538行，约51行）
 
@@ -365,7 +343,6 @@ Lemma invalid_vertex_path_equiv:
 **情况2：v ≠ j**
 - v 在 processed_j 中或不在，直接使用前置条件
 
-**证明技巧：** 使用 classical 逻辑的排中律处理 vvalid 的判定
 
 #### 5.4.4 辅助引理4：`Floyd_j_invariant_Proper` （第544-577行，约34行）
 
@@ -373,7 +350,6 @@ Lemma invalid_vertex_path_equiv:
 
 **必要性：** `Hoare_forset` 要求不变量满足 Proper 性质
 
-**证明：** 标准的集合等价关系改写
 
 #### 5.4.5 主证明：`Floyd_j_correct`
 
@@ -387,9 +363,6 @@ eapply Hoare_conseq.
 - (* 循环体 *) intros i; apply update_dist_correct
 ```
 
-**巧妙之处：** 内层不变量精确跟踪每个位置 (u, v) 的状态：
-- 对于 v = j：区分已处理和未处理的 i
-- 对于 v ≠ j：保持外层不变量不变
 
 ### 5.5 外层循环：处理中间节点 k
 
@@ -404,7 +377,6 @@ Lemma Floyd_k_correct: forall done k,
         (Floyd_loop_invariant (done ∪ [k])).
 ```
 
-**证明使用 `Hoare_forset` 框架：**
 
 #### 5.5.1 外层不变量
 
@@ -419,7 +391,7 @@ fun processed_j s =>
 - 已处理的列 j（`processed_j v`）：dist[u][v] 满足 done ∪ [k] 的不变量
 - 未处理的列：dist[u][v] 满足 done 的不变量
 
-#### 5.5.2 初始化（第654-658行）
+#### 5.5.2 初始化
 
 ```coq
 intros s Hinv u v.
@@ -428,9 +400,9 @@ split.
 + intros _. apply Hinv.                   (* 所有列满足旧不变量 *)
 ```
 
-#### 5.5.3 终止条件（第659-701行）
+#### 5.5.3 终止条件
 
-**关键：** 当所有列 j 处理完毕后，证明 `Floyd_loop_invariant (done ∪ [k])`
+当所有列 j 处理完毕后，证明 `Floyd_loop_invariant (done ∪ [k])`
 
 **分两种情况：**
 
@@ -442,31 +414,25 @@ split.
 - 证明：无效的终点意味着路径必为空（使用 `valid_path_tail_valid`）
 - 因此中间节点集的变化不影响路径集合
 
-**证明技巧：**
-```coq
-assert (Hunchanged: 
-  min_weight_distance_in_vset g u v (done ∪ [k]) w <->
-  min_weight_distance_in_vset g u v done w).
-```
 
-通过证明路径集合等价来证明距离等价
-
-#### 5.5.4 Proper 性质（第702-712行）
+#### 5.5.4 Proper 性质
 
 标准的集合等价关系改写
 
-#### 5.5.5 循环体（第713-715行）
+#### 5.5.5 循环体
 
 ```coq
 intros processed_j j Hsubset_j Hin_j Hnotin_j.
 apply (Floyd_j_correct done k processed_j j ...).
 ```
 
-直接应用 `Floyd_j_correct`
-
 ### 5.6 主定理：Floyd算法的完全正确性
 
-**定理：`Floyd_correct`** （第731-798行，约68行）
+**定理：`Floyd_correct`**
+
+这是整个Floyd算法正确性证明的顶点，综合运用前面所有引理，证明算法的完全正确性。
+
+#### 5.6.1 定理陈述
 
 ```coq
 Theorem Floyd_correct:
@@ -475,77 +441,53 @@ Theorem Floyd_correct:
         (fun _ s => distance_correct s).
 ```
 
-**其中：**
-```coq
-Definition distance_correct (s: St): Prop :=
-  distance_soundness s /\ distance_completeness s.
-```
+**含义：** 如果初始状态满足空集上的循环不变量（`initialized_state`），则Floyd算法执行后，`dist`数组满足完全正确性（`distance_correct`），即同时满足健全性和完备性：
+- **健全性**：`dist[u][v] = w` ⟹ w 是真正的最短距离
+- **完备性**：w 是最短距离 ⟹ `dist[u][v] = w`
 
-#### 5.6.1 证明结构
+#### 5.6.2 证明框架：三层嵌套循环的统一
 
-使用 `Hoare_forset Floyd_loop_invariant`：
-
-**1. 初始化（第739-740行）**
-```coq
-intros s H. exact H.
-```
-空集上的循环不变量直接由初始状态保证
-
-**2. 终止条件（第741-792行）**
-
-核心：当 `done = vvalid g`（所有顶点）时，受限距离等价于无限制距离
-
-**关键等价性：**
-```coq
-assert (Hpaths: 
-  (fun p => is_path_through_vset g p u v (fun v => vvalid g v)) ==
-  (fun p => is_path g p u v)).
-```
-
-**证明思路：**
-- `is_path_through_vset` 要求中间节点都在 vvalid g 中
-- 由 `valid_path_tail_valid` 知，任何非空路径的中间节点都是有效顶点
-- 因此两个路径集合相等
-
-**健全性（distance_soundness）：**
-```coq
-specialize (Hinv u v).
-rewrite Hw in Hinv.
-apply Hequiv. exact Hinv.
-```
-
-**完备性（distance_completeness）：**
-```coq
-apply Hequiv in Hinv.
-eapply (min_default_unique Z_op_le).
-* exact Hinv.
-* exact Hmin.
-```
-
-使用最小值的唯一性
-
-**3. Proper 性质（第793-794行）**
-```coq
-apply Floyd_loop_invariant_Proper.
-```
-
-**4. 循环体（第795-797行）**
-```coq
-intros done k Hsubset Hin Hnotin.
-apply (Floyd_k_correct done k Hsubset Hin Hnotin).
-```
-
-#### 5.6.2 初始化条件
+**核心思想：** 使用 `Hoare_forset` 框架处理最外层循环（遍历所有中间节点k）
 
 ```coq
-Definition initialized_state (s: St): Prop := 
-  Floyd_loop_invariant ∅ s.
+3: apply (Hoare_forset Floyd_loop_invariant).
 ```
 
-**含义：** 初始时，`dist[u][v]` 应该是"不经过任何中间节点"的最短距离
-- 如果存在边 u → v，则 dist[u][v] = weight(e)
-- 如果 u = v，则 dist[u][u] = Some 0
-- 否则 dist[u][v] = None（不可达）
+**循环不变量：** `Floyd_loop_invariant done` 表示当 `done` 中的所有顶点都作为中间节点处理完毕后，`dist[u][v]` 存储的是只允许经过 `done` 中顶点作为中间节点的最短路径。
+
+#### 5.6.3 证明的四个组成部分
+
+- 第一部分：初始化条件
+- 第二部分：终止条件
+- 第三部分：Proper 性质
+- 第四部分：循环体
+
+使用的引理已在上文中介绍。
+
+#### 5.6.4 证明的层次结构总结
+
+整个证明形成了清晰的层次结构：
+
+```
+Floyd_correct (主定理)
+  ├─ 初始化：空集满足不变量
+  ├─ 终止：全集蕴含正确性
+  │   ├─ 健全性：使用路径集合等价性
+  │   └─ 完备性：使用最小值唯一性
+  ├─ Proper：引理1 (Floyd_loop_invariant_Proper)
+  └─ 循环体：引理4 (Floyd_k_correct)
+       ├─ 初始化：空集的情况
+       ├─ 终止：全集的情况（分有效/无效顶点）
+       ├─ Proper：标准集合等价改写
+       └─ 循环体：引理3 (Floyd_j_correct)
+            ├─ 初始化：引理3.2 (Floyd_j_init)
+            ├─ 终止：引理3.3 (Floyd_j_final)
+            ├─ Proper：引理3.4 (Floyd_j_invariant_Proper)
+            └─ 循环体：引理2 (update_dist_correct)
+                 └─ 核心：floyd_relaxation_correct
+                      └─ 基于：min_weight_distance_in_vset_stable
+```
+
 
 ---
 
@@ -553,7 +495,7 @@ Definition initialized_state (s: St): Prop :=
 
 ### 6.1 问题陈述
 
-**定理：`shortest_path_last_edge`** （第827-911行，约85行）
+**定理：`shortest_path_last_edge`** 
 
 **目标：** 如果边 `e: v → u` 满足 `d(s,u) = d(s,v) + weight(e)`，则存在一条从 s 到 u 的最短路径，其最后一条边恰好是 e。
 
@@ -575,7 +517,7 @@ Lemma shortest_path_last_edge: forall (s u v: V) (e: E) (w_su w_sv w_e: Z),
 
 ### 6.2 证明结构
 
-#### 6.2.1 第一步：提取 s 到 v 的最短路径（第837-841行）
+#### 6.2.1 第一步：提取 s 到 v 的最短路径
 
 ```coq
 destruct Hdist_v as [[Hmin Hle] | [Hall Hdef]]; [| discriminate].
@@ -583,23 +525,17 @@ destruct Hmin as [p_v [Hmin_v Hw_v]].
 destruct Hmin_v as [Hp_v_path Hmin_v_le].
 ```
 
-**分析：** `min_weight_distance` 的定义有两种情况：
-1. 存在最小值（对应某条路径）
-2. 路径集合为空（用 None 表示）
 
-这里通过模式匹配提取出最短路径 `p_v`
-
-#### 6.2.2 第二步：构造从 s 到 u 的候选路径（第842行）
+#### 6.2.2 第二步：构造从 s 到 u 的候选路径
 
 ```coq
 pose (p_u := concat_path p_v (single_path v u e)).
 ```
 
 **关键：** 利用最优子结构性质
-- p_v 是 s 到 v 的最短路径
-- 加上边 e 得到 s 到 u 的候选路径
 
-#### 6.2.3 第三步：证明候选路径有效（第844-856行）
+
+#### 6.2.3 第三步：证明候选路径有效
 
 ```coq
 assert (Hvalid_u_path: path_valid g p_u).
@@ -612,12 +548,7 @@ assert (Hvalid_u_path: path_valid g p_u).
 }
 ```
 
-**技术要点：**
-- 使用 `concat_path_valid` 证明拼接路径有效
-- 需要证明 `tail p_v = head (single_path v u e)`
-- 使用 `single_path_vertex` 计算 single_path 的首尾点
-
-#### 6.2.4 第四步：证明路径的起点和终点正确（第858-882行）
+#### 6.2.4 第四步：证明路径的起点和终点正确
 
 ```coq
 assert (Hvalid_u: is_path g p_u s u).
@@ -640,7 +571,7 @@ assert (Hvalid_u: is_path g p_u s u).
 - `tail_concat`: tail (concat p1 p2) = tail p2（当 p2 非空时）
 - `tl_error_last`: 计算列表的最后元素
 
-#### 6.2.5 第五步：证明路径权重正确（第889-902行）
+#### 6.2.5 第五步：证明路径权重正确
 
 ```coq
 assert (Hpw: path_weight g p_u = Some w_su).
@@ -660,13 +591,7 @@ assert (Hpw: path_weight g p_u = Some w_su).
 }
 ```
 
-**关键步骤：**
-1. 展开 path_weight 定义（边权重列表的求和）
-2. 使用 `concat_path_edge`: edge_in_path (concat p1 p2) = edges p1 ++ edges p2
-3. 使用 `Zlist_sum_app`: sum (l1 ++ l2) = sum l1 + sum l2
-4. 代入已知的 `w_sv` 和 `w_e`，得到 `w_su`
-
-#### 6.2.6 第六步：证明这是最短路径（第903-909行）
+#### 6.2.6 第六步：证明最短路径
 
 ```coq
 rewrite Hpw.
@@ -676,84 +601,6 @@ rewrite <- Hw_u.
 destruct Hmin_u as [_ Hle_u_min].
 apply Hle_u_min. exact Hp'.
 ```
-
-**证明思路：**
-- 已知 `w_su` 是 s 到 u 的最短距离（由前置条件）
-- 我们构造的路径 `p_u` 的权重等于 `w_su`
-- 因此 `p_u` 是最短路径（权重等于最小值）
-
-### 6.3 关键引理依赖
-
-#### 6.3.1 路径拼接
-
-1. **`concat_path_valid`：** 证明拼接路径的有效性
-   - 前提：p1 和 p2 有效，且 tail p1 = head p2
-   
-2. **`concat_path_edge`：** 拼接路径的边集
-   - edge_in_path (concat p1 p2) = edges p1 ++ edges p2
-
-3. **`concat_path_vertex`：** 拼接路径的顶点序列
-   - vertex_in_path (concat p1 p2) = vertices p1 ++ (tail vertices p2)
-
-#### 6.3.2 单边路径
-
-1. **`single_path_valid`：** 单边路径的有效性
-   - 前提：存在边 e: v → u
-   
-2. **`single_path_vertex`：** 单边路径的顶点序列
-   - vertex_in_path (single_path v u e) = [v; u]
-
-3. **`single_path_edge`：** 单边路径的边集
-   - edge_in_path (single_path v u e) = [e]
-
-#### 6.3.3 权重计算
-
-1. **`Zlist_sum_app`：** 列表求和的分配律
-   - Zlist_sum (l1 ++ l2) = Z_op_plus (Zlist_sum l1) (Zlist_sum l2)
-
-2. **`path_weight` 定义：**
-   ```coq
-   Definition path_weight (p: P): option Z :=
-     Zlist_sum (map (weight g) (edge_in_path p)).
-   ```
-
-#### 6.3.4 首尾顶点
-
-1. **`head_valid`：** head p = hd_error (vertex_in_path p)
-
-2. **`tail_valid`：** tail p = tl_error (vertex_in_path p)
-
-3. **`tl_error_last`：** 计算列表的最后元素
-
-### 6.4 证明技巧总结
-
-#### 6.4.1 模式匹配提取信息
-
-```coq
-destruct H as [[case1] | [case2]]; [| discriminate].
-```
-用于从 sum type 中提取正确的分支
-
-#### 6.4.2 路径权重计算的标准流程
-
-```
-unfold path_weight
--> rewrite concat_path_edge  
--> rewrite map_app
--> rewrite Zlist_sum_app
--> 代入已知权重
--> simplify with lia
-```
-
-#### 6.4.3 路径有效性的层次
-
-```
-path_valid g p           (路径在图中有效)
-  -> is_path g p u v     (+ 起点终点正确)
-    -> min_weight_path   (+ 权重最小)
-```
-
-逐层证明，每层添加新的性质
 
 
 
@@ -842,9 +689,6 @@ Definition next_valid_weak (s: St): Prop :=
   (forall u, s.(next) (u, u) = None).  (* 自环的next为空 *)
 ```
 
-**含义：**
-- 如果 `next[u][v] = Some w` 且 u ≠ v，则必须存在边 u → w
-- 对角线上的 next 值必须为 None（没有自环的"下一跳"）
 
 #### 7.4.2 完整不变量
 
@@ -858,10 +702,6 @@ Definition Floyd_invariant (done: V -> Prop) (s: St): Prop :=
 2. `next` 数组的有效性（弱有效性不变量）
 
 ### 7.5 关键引理：自环不会被更新
-
-**问题：** 为什么需要证明 `next[u][u]` 永远不会被设置为非 None 值？
-
-**引理：`self_loop_no_update_gen`**
 
 ```coq
 Lemma self_loop_no_update_gen: forall i k (done: V -> Prop) (s: St),
@@ -898,7 +738,7 @@ Lemma update_dist_preserves_next_valid: forall i j k (done: V -> Prop),
 2. **更新时：** `next[i][j] := next[i][k]`
    - 需要证明存在边 i → w（其中 w = next[i][k]）
    - 由 `next_valid_weak` 对 `next[i][k]` 的保证直接得到
-3. **关键：** i = j 时不会更新（由 `self_loop_no_update` 保证）
+3. i = j 时不会更新
 
 ### 7.7 循环不变量的维护
 
